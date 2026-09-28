@@ -20,13 +20,14 @@ same-repository pull requests; its Clippy report job has no Sonar secret. Allow
 GitHub Actions to create pull requests in repository settings if the
 organization requires that setting.
 
-After each workflow has completed on `main`, require the Conventional Commits,
-Workflow lint, Secrets, both Rust toolchain checks, Docker image, documentation,
-and CodeQL checks in branch protection. Add Sonar Cloud after its first
-successful baseline scan. Require pull requests and current-base checks, enable
-linear history and conversation resolution, and disallow force pushes and
-branch deletion. Select the exact check names shown by GitHub. Review security
-and release settings before the first image publication.
+The `main` branch rules require these checks: `Conventional Commits`, `Workflow
+lint`, `Secrets`, `Rust (1.90.0)`, `Rust (1.98.1)`, `Docker image`, `build`
+(documentation), `CodeQL (rust)`, `CodeQL (actions)`, `Sonar Clippy report`,
+and `Sonar Cloud`. The Cloud scan is skipped for fork and Dependabot pull
+requests because they do not receive the project token. Branch rules require
+pull requests and current-base checks, enforce linear history and conversation
+resolution, and disallow force pushes and branch deletion. Review security and
+release settings before the first image publication.
 
 ## Exact-candidate publication
 
