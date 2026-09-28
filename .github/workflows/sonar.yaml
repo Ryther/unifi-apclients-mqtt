@@ -25,13 +25,39 @@ jobs:
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de
         with:
           toolchain: 1.98.1
-          components: clippy
+          components: clippy, llvm-tools-preview
+      - name: Install cargo-llvm-cov
+        run: cargo install --locked --version 0.8.5 cargo-llvm-cov
       - name: Generate Clippy JSON without Sonar credentials
         run: cargo clippy --locked --all-targets --all-features --message-format=json > clippy-report.json
+      - name: Generate LCOV coverage with disposable MQTT broker
+        env:
+          MQTT_TEST_BROKER: 127.0.0.1:1883
+        run: |
+          docker run --detach --rm --name sonar-mqtt-broker --publish 1883:1883 \
+            --volume "$GITHUB_WORKSPACE/tests/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro" \
+            eclipse-mosquitto@sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408
+          trap 'docker stop sonar-mqtt-broker >/dev/null 2>&1 || true' EXIT
+          ready=false
+          for attempt in $(seq 1 15); do
+            : "$attempt"
+            if docker exec sonar-mqtt-broker mosquitto_pub -h 127.0.0.1 -t health -m ready >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            docker logs sonar-mqtt-broker
+            exit 1
+          fi
+          cargo llvm-cov --locked --all-features --lcov --output-path lcov.info
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sonar-clippy-report
-          path: clippy-report.json
+          path: |
+            clippy-report.json
+            lcov.info
           if-no-files-found: error
           retention-days: 7
 
@@ -60,4 +86,5 @@ jobs:
           args: >-
             -Dsonar.rust.clippy.enabled=false
             -Dsonar.rust.clippyReport.reportPaths=clippy-report.json
+            -Dsonar.rust.lcov.reportPaths=lcov.info
             -Dsonar.qualitygate.wait=true
