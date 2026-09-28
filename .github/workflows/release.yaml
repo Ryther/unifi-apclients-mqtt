@@ -74,6 +74,7 @@ jobs:
       contents: read
     outputs:
       sha: ${{ steps.identity.outputs.sha }}
+      release_id: ${{ steps.identity.outputs.release_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -85,7 +86,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag_name }}
         run: |
-          release=$(gh release view "$RELEASE_TAG" --json tagName,isDraft,targetCommitish)
+          release=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.tag_name == env.RELEASE_TAG) | {id: .id, tagName: .tag_name, isDraft: .draft, targetCommitish: .target_commitish}')
+          test -n "$release"
           test "$(jq -r .tagName <<<"$release")" = "$RELEASE_TAG"
           test "$(jq -r .isDraft <<<"$release")" = true
           candidate_sha=$(jq -r .targetCommitish <<<"$release")
@@ -96,6 +99,7 @@ jobs:
           head_sha=$(git rev-parse HEAD)
           test "$candidate_sha" = "$head_sha"
           echo "sha=$candidate_sha" >> "$GITHUB_OUTPUT"
+          echo "release_id=$(jq -r .id <<<"$release")" >> "$GITHUB_OUTPUT"
 
   validate-candidate:
     needs: [prepare, verify-draft]
@@ -142,7 +146,7 @@ jobs:
             ghcr.io/ryther/unifi-apclients-mqtt:latest
 
   publish-release:
-    needs: [prepare, publish-image]
+    needs: [prepare, verify-draft, publish-image]
     if: needs.prepare.outputs.release_created == 'true'
     runs-on: ubuntu-24.04
     permissions:
@@ -151,5 +155,5 @@ jobs:
       - name: Publish the verified draft after its image is available
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag_name }}
-        run: gh release edit "$RELEASE_TAG" --draft=false
+          RELEASE_ID: ${{ needs.verify-draft.outputs.release_id }}
+        run: gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --field draft=false
