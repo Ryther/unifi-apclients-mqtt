@@ -1,5 +1,7 @@
 # Releases
 
+[Documentation home](index.md) · [← Architecture](architecture.md)
+
 Release Please proposes version and changelog updates from Conventional Commits
 merged to `main`. Review the release pull request before merging it. Stable
 release tags use the `unifi-apclients-mqtt-vMAJOR.MINOR.PATCH` form.

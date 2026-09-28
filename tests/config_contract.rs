@@ -4,14 +4,17 @@
 //!
 //! * `unifi_apclients_mqtt::config::Config::from_env` accepts an iterable of
 //!   `(key, value)` pairs and returns `Result<Config, ConfigError>`.
-//! * Required keys are `UNIFI_URL`, `UNIFI_USERNAME`, `UNIFI_PASSWORD`,
-//!   `UNIFI_AP_MACS`, `MQTT_HOST`, and `MQTT_PORT`.
+//! * Required settings are `UNIFI_URL`, `UNIFI_USERNAME`, a UniFi password
+//!   value or file, `UNIFI_AP_MACS`, `MQTT_HOST`, and `MQTT_PORT`.
 //! * `UNIFI_AP_MACS` is a comma separated list of MAC addresses.
 //! * `UNIFI_POLL_INTERVAL_SECS` defaults to 5; `UNIFI_TLS_INSECURE` defaults
 //!   to false and accepts `true`/`false`.
-//! * Optional MQTT credentials are `MQTT_USERNAME` and `MQTT_PASSWORD`.
+//! * Optional MQTT credentials are `MQTT_USERNAME` and a password value or
+//!   file.
 
 use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use unifi_apclients_mqtt::config::Config;
@@ -28,6 +31,17 @@ fn valid_env() -> HashMap<&'static str, &'static str> {
         ("MQTT_USERNAME", "publisher"),
         ("MQTT_PASSWORD", "mqtt-secret"),
     ])
+}
+
+fn unique_secret_path(name: &str) -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "unifi-apclients-mqtt-{name}-{}-{}.secret",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos()
+    ))
 }
 
 #[test]
@@ -83,4 +97,57 @@ fn rejects_missing_required_settings_and_invalid_values() {
     let mut password_without_username = valid_env();
     password_without_username.remove("MQTT_USERNAME");
     assert!(Config::from_env(password_without_username).is_err());
+}
+
+#[test]
+fn reads_passwords_from_secret_files_and_removes_one_trailing_line_ending() {
+    let unifi_secret = unique_secret_path("unifi");
+    let mqtt_secret = unique_secret_path("mqtt");
+    fs::write(&unifi_secret, "unifi-secret\r\n").expect("write UniFi secret fixture");
+    fs::write(&mqtt_secret, "mqtt-secret\n").expect("write MQTT secret fixture");
+
+    let mut env: HashMap<String, String> = valid_env()
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), value.to_owned()))
+        .collect();
+    env.remove("UNIFI_PASSWORD");
+    env.remove("MQTT_PASSWORD");
+    env.insert(
+        "UNIFI_PASSWORD_FILE".to_owned(),
+        unifi_secret.display().to_string(),
+    );
+    env.insert(
+        "MQTT_PASSWORD_FILE".to_owned(),
+        mqtt_secret.display().to_string(),
+    );
+
+    let config = Config::from_env(env).expect("secret files should satisfy password settings");
+
+    assert_eq!(config.unifi_password, "unifi-secret");
+    assert_eq!(config.mqtt_password.as_deref(), Some("mqtt-secret"));
+    fs::remove_file(unifi_secret).expect("remove UniFi secret fixture");
+    fs::remove_file(mqtt_secret).expect("remove MQTT secret fixture");
+}
+
+#[test]
+fn rejects_password_set_as_both_environment_value_and_secret_file() {
+    let secret = unique_secret_path("conflict");
+    fs::write(&secret, "file-secret").expect("write secret fixture");
+
+    let mut env: HashMap<String, String> = valid_env()
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), value.to_owned()))
+        .collect();
+    env.insert(
+        "UNIFI_PASSWORD_FILE".to_owned(),
+        secret.display().to_string(),
+    );
+
+    let result = Config::from_env(env);
+
+    assert!(
+        result.is_err(),
+        "ambiguous password sources must be rejected"
+    );
+    fs::remove_file(secret).expect("remove secret fixture");
 }
