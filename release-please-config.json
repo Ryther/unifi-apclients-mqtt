@@ -4,5 +4,6 @@
     ".": {
       "component": "unifi-apclients-mqtt"
     }
-  }
+  },
+  "draft": true
 }

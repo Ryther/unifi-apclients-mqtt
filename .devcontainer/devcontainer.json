@@ -1,7 +1,7 @@
 {
   "name": "UniFi AP Clients MQTT",
-  "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
-  "postCreateCommand": "rustup component add clippy rustfmt && cargo fetch --locked",
+  "image": "mcr.microsoft.com/devcontainers/rust@sha256:4e543ec9da930f1d15301334d44bddfbeb824c4bb1c34a81dfd2115825f303a9",
+  "postCreateCommand": "cargo fetch --locked",
   "customizations": {
     "vscode": {
       "extensions": [

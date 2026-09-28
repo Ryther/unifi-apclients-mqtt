@@ -1,0 +1,67 @@
+name: Conventional Commits
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact commit to validate when called by the release workflow
+        type: string
+        required: false
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Conventional Commits
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate pull request title and commit messages
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import subprocess
+          import sys
+
+          header = re.compile(
+              r"^(?:feat|fix|perf|refactor|revert|docs|test|build|ci|chore)"
+              r"(?:\([A-Za-z0-9][A-Za-z0-9._/-]*\))?!?: .+\S$"
+          )
+
+          def valid(subject: str) -> bool:
+              return subject.startswith("Merge ") or header.fullmatch(subject) is not None
+
+          base = os.environ.get("PR_BASE_SHA", "")
+          revision = f"{base}..HEAD" if base else "HEAD"
+          subjects = subprocess.run(
+              ["git", "log", "--format=%s", revision],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout.splitlines()
+          invalid = [subject for subject in subjects if not valid(subject)]
+          title = os.environ.get("PR_TITLE", "")
+          if title and not valid(title):
+              invalid.insert(0, f"pull request title: {title}")
+          if invalid:
+              print("Use Conventional Commit headers; invalid values:", file=sys.stderr)
+              for subject in invalid:
+                  print(f"  {subject}", file=sys.stderr)
+              sys.exit(1)
+          if not subjects:
+              print("No commits were found in the checked range.", file=sys.stderr)
+              sys.exit(1)
+          PY

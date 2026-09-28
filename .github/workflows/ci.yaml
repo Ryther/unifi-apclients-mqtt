@@ -1,42 +1,97 @@
 name: CI
 
 on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact commit to validate when called by the release workflow
+        type: string
+        required: false
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  rust:
-    runs-on: ubuntu-latest
+  workflow-lint:
+    name: Workflow lint
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Check GitHub Actions workflows
+        run: >-
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" -w /repo
+          rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+
+  secrets:
+    name: Secrets
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan history and working tree
+        run: |
+          image='ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f' # v8.30.1
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" "$image" detect --source /repo --redact --no-banner
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" "$image" detect --no-git --source /repo --redact --no-banner
+
+  rust:
+    name: Rust (${{ matrix.toolchain }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: ["1.90.0", "1.98.1"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de
+        with:
+          toolchain: ${{ matrix.toolchain }}
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy --locked --all-targets --all-features -- -D warnings
-      - name: Run tests with disposable MQTT broker
+      - name: Start disposable MQTT broker and run Rust checks
         env:
           MQTT_TEST_BROKER: 127.0.0.1:1883
+          RUST_TOOLCHAIN: ${{ matrix.toolchain }}
         run: |
           docker run --detach --rm --name mqtt-contract-broker --publish 1883:1883 \
             --volume "$GITHUB_WORKSPACE/tests/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro" \
-            eclipse-mosquitto:2
+            eclipse-mosquitto@sha256:38c0da4f2ef84284d47b3b3eeea1cb3bdeabe81ee10caf0cd5c5ff61ee3ea408
           trap 'docker stop mqtt-contract-broker >/dev/null 2>&1 || true' EXIT
+          ready=false
           for attempt in $(seq 1 15); do
+            : "$attempt"
             if docker exec mqtt-contract-broker mosquitto_pub -h 127.0.0.1 -t health -m ready >/dev/null 2>&1; then
+              ready=true
               break
             fi
             sleep 1
           done
-          cargo test --locked
+          if [ "$ready" != true ]; then
+            docker logs mqtt-contract-broker
+            exit 1
+          fi
+          cargo "+$RUST_TOOLCHAIN" fmt --all -- --check
+          cargo "+$RUST_TOOLCHAIN" clippy --locked --all-targets --all-features -- -D warnings
+          cargo "+$RUST_TOOLCHAIN" test --locked
 
   container:
-    runs-on: ubuntu-latest
+    name: Docker image
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - run: docker build --tag unifi-apclients-mqtt:test .
