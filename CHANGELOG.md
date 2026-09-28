@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.4.0...unifi-apclients-mqtt-v0.4.1) (2026-09-28)
+
+
+### Bug Fixes
+
+* align SonarCloud project key ([a55b481](https://github.com/Ryther/unifi-apclients-mqtt/commit/a55b481bb56dc92e8e0c0f10127c9862be5e36f7))
+
 ## [0.4.0](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.3.0...unifi-apclients-mqtt-v0.4.0) (2026-09-28)
 
 
