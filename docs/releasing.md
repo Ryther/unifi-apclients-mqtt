@@ -10,8 +10,9 @@ Configure the repository to use `main` as its default branch and enable Actions.
 Set the fine-grained repository secret `RELEASE_PLEASE_TOKEN` with repository
 Contents, Issues, and Pull requests read/write permissions. The built-in
 `GITHUB_TOKEN` does not trigger follow-up CI for bot-created pull requests.
-Allow GitHub Actions to create pull requests in repository settings if the
-organization requires that setting.
+Until the secret is configured, pushes to `main` skip release automation and
+emit a workflow notice. Allow GitHub Actions to create pull requests in
+repository settings if the organization requires that setting.
 
 After CI has run once on `main`, require the Conventional Commits, Workflow
 lint, Secrets, both Rust toolchain checks, and Docker image checks in the branch
