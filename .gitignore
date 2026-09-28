@@ -1,0 +1,12 @@
+/target/
+/.env
+/.env.*
+!/.env.example
+/_test/
+/_tmp/
+*.log
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.*.yaml

@@ -1,0 +1,25 @@
+{
+  "data": [
+    {
+      "mac": "AA:AA:AA:AA:AA:01",
+      "name": "living-room-phone",
+      "hostname": "living-room-phone",
+      "ap_mac": "11:22:33:44:55:66",
+      "ip": "192.0.2.21"
+    },
+    {
+      "mac": "AA:AA:AA:AA:AA:02",
+      "name": "office-laptop",
+      "hostname": "office-laptop",
+      "ap_mac": "22:33:44:55:66:77",
+      "ip": "192.0.2.22"
+    },
+    {
+      "mac": "AA:AA:AA:AA:AA:03",
+      "name": "living-room-tablet",
+      "hostname": null,
+      "ap_mac": "11:22:33:44:55:66",
+      "ip": "192.0.2.23"
+    }
+  ]
+}
