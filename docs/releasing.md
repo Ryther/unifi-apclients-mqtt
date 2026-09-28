@@ -17,7 +17,7 @@ Set the fine-grained repository secret `RELEASE_PLEASE_TOKEN` with repository
 Contents, Issues, and Pull requests read/write permissions. The built-in
 `GITHUB_TOKEN` does not trigger follow-up CI for bot-created pull requests.
 Set `SONAR_TOKEN` to a project analysis token for the SonarQube Cloud project
-`Ryther_unifi-apclients-mqtt`. Sonar runs only on `main` pushes and
+`unifi-apclients-mqtt`. Sonar runs only on `main` pushes and
 same-repository pull requests; its Clippy report job has no Sonar secret. Allow
 GitHub Actions to create pull requests in repository settings if the
 organization requires that setting.
