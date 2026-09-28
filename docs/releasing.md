@@ -14,11 +14,12 @@ Allow GitHub Actions to create pull requests in repository settings if the
 organization requires that setting.
 
 After CI has run once on `main`, require the Conventional Commits, Workflow
-lint, Secrets, both Rust toolchain checks, Docker image, and both CodeQL checks
-in the branch rules. Require pull requests and current-base checks; disallow
-force pushes and branch deletion. Select the exact check names shown by
-GitHub. When the repository is public, review its security and release settings
-before the first image publication.
+lint, Secrets, both Rust toolchain checks, and Docker image checks in the branch
+rules. Also require both CodeQL checks when code scanning is available. Require
+pull requests and current-base checks; disallow force pushes and branch
+deletion. Select the exact check names shown by GitHub. CodeQL is skipped for a
+private repository when its GitHub plan does not provide code scanning. Review
+security and release settings before the first image publication.
 
 ## Exact-candidate publication
 
