@@ -32,6 +32,11 @@ run the pinned `actionlint` container. For Rust changes, include the affected
 contract tests and report the exact command and result in the pull request.
 Never use real household client records as fixtures.
 
+The Documentation workflow builds `docs/` with MkDocs Material in strict mode
+and publishes it to GitHub Pages on `main` when `DOCS_PAGES_ENABLED=true`. The
+Sonar workflow creates a Clippy JSON report without credentials, then submits it
+to SonarQube Cloud for pushes and trusted same-repository pull requests.
+
 ## Pull requests
 
 Use a Conventional Commit title and commits (`feat:`, `fix:`, `docs:`, `ci:`,

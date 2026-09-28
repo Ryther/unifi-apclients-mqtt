@@ -6,21 +6,27 @@ release tags use the `vMAJOR.MINOR.PATCH` form.
 
 ## GitHub configuration
 
-Configure the repository to use `main` as its default branch and enable Actions.
+Use `main` as the default branch and enable Actions. In Pages settings, select
+GitHub Actions as the build and deployment source. The `DOCS_PAGES_ENABLED`
+Actions variable controls automatic publication from `main`; manual workflow
+runs also publish when it is `true`.
+
 Set the fine-grained repository secret `RELEASE_PLEASE_TOKEN` with repository
 Contents, Issues, and Pull requests read/write permissions. The built-in
 `GITHUB_TOKEN` does not trigger follow-up CI for bot-created pull requests.
-Until the secret is configured, pushes to `main` skip release automation and
-emit a workflow notice. Allow GitHub Actions to create pull requests in
-repository settings if the organization requires that setting.
+Set `SONAR_TOKEN` to a project analysis token for the SonarQube Cloud project
+`Ryther_unifi-apclients-mqtt`. Sonar runs only on `main` pushes and
+same-repository pull requests; its Clippy report job has no Sonar secret. Allow
+GitHub Actions to create pull requests in repository settings if the
+organization requires that setting.
 
-After CI has run once on `main`, require the Conventional Commits, Workflow
-lint, Secrets, both Rust toolchain checks, and Docker image checks in the branch
-rules. Also require both CodeQL checks when code scanning is available. Require
-pull requests and current-base checks; disallow force pushes and branch
-deletion. Select the exact check names shown by GitHub. CodeQL is skipped for a
-private repository when its GitHub plan does not provide code scanning. Review
-security and release settings before the first image publication.
+After each workflow has completed on `main`, require the Conventional Commits,
+Workflow lint, Secrets, both Rust toolchain checks, Docker image, documentation,
+and CodeQL checks in branch protection. Add Sonar Cloud after its first
+successful baseline scan. Require pull requests and current-base checks, enable
+linear history and conversation resolution, and disallow force pushes and
+branch deletion. Select the exact check names shown by GitHub. Review security
+and release settings before the first image publication.
 
 ## Exact-candidate publication
 

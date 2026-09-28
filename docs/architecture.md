@@ -33,7 +33,8 @@ Assistant creates one sensor whose state is the client count; the JSON payload
 also supplies AP and client attributes. Discovery uses both global service and
 per-AP availability with `availability_mode: all`.
 
-Payload examples and exact topics are documented in the [README](../README.md).
+Payload examples and exact topics are documented in the
+[repository README](https://github.com/Ryther/unifi-apclients-mqtt#readme).
 Do not change topics, unique IDs, retained behavior, or availability semantics
 without considering existing Home Assistant entities and retained broker data.
 

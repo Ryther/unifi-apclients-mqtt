@@ -1,6 +1,9 @@
 # UniFi AP Clients MQTT
 
 [![CI](https://github.com/Ryther/unifi-apclients-mqtt/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/Ryther/unifi-apclients-mqtt/actions/workflows/ci.yaml)
+[![CodeQL](https://github.com/Ryther/unifi-apclients-mqtt/actions/workflows/codeql.yaml/badge.svg?branch=main)](https://github.com/Ryther/unifi-apclients-mqtt/actions/workflows/codeql.yaml)
+[![Sonar quality gate](https://sonarcloud.io/api/project_badges/measure?project=Ryther_unifi-apclients-mqtt&metric=alert_status)](https://sonarcloud.io/dashboard?id=Ryther_unifi-apclients-mqtt)
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://ryther.github.io/unifi-apclients-mqtt/)
 [![Latest release](https://img.shields.io/github/v/release/Ryther/unifi-apclients-mqtt)](https://github.com/Ryther/unifi-apclients-mqtt/releases/latest)
 [![License](https://img.shields.io/github/license/Ryther/unifi-apclients-mqtt)](LICENSE)
 
