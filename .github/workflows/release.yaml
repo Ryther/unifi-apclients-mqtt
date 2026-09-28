@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Draft Release Please tag to validate and resume (for example v0.2.0)
+        description: Draft Release Please tag to validate and resume (for example unifi-apclients-mqtt-v0.2.0)
         type: string
         required: false
 
@@ -59,8 +59,8 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo 'release_tag must use vMAJOR.MINOR.PATCH.' >&2
+          if [[ ! "$RELEASE_TAG" =~ ^unifi-apclients-mqtt-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'release_tag must use unifi-apclients-mqtt-vMAJOR.MINOR.PATCH.' >&2
             exit 1
           fi
           echo "release_created=true" >> "$GITHUB_OUTPUT"
@@ -77,22 +77,25 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.prepare.outputs.tag_name }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Confirm this is the matching draft tag and capture its commit
+      - name: Confirm this is the matching draft release and capture its commit
         id: identity
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag_name }}
         run: |
-          release=$(gh release view "$RELEASE_TAG" --json tagName,isDraft)
+          release=$(gh release view "$RELEASE_TAG" --json tagName,isDraft,targetCommitish)
           test "$(jq -r .tagName <<<"$release")" = "$RELEASE_TAG"
           test "$(jq -r .isDraft <<<"$release")" = true
-          tag_sha=$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")
+          candidate_sha=$(jq -r .targetCommitish <<<"$release")
+          [[ "$candidate_sha" =~ ^[0-9a-f]{40}$ ]]
+          git cat-file -e "$candidate_sha^{commit}"
+          git merge-base --is-ancestor "$candidate_sha" "$GITHUB_SHA"
+          git checkout --detach "$candidate_sha"
           head_sha=$(git rev-parse HEAD)
-          test "$tag_sha" = "$head_sha"
-          echo "sha=$head_sha" >> "$GITHUB_OUTPUT"
+          test "$candidate_sha" = "$head_sha"
+          echo "sha=$candidate_sha" >> "$GITHUB_OUTPUT"
 
   validate-candidate:
     needs: [prepare, verify-draft]

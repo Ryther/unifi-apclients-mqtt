@@ -2,7 +2,7 @@
 
 Release Please proposes version and changelog updates from Conventional Commits
 merged to `main`. Review the release pull request before merging it. Stable
-release tags use the `vMAJOR.MINOR.PATCH` form.
+release tags use the `unifi-apclients-mqtt-vMAJOR.MINOR.PATCH` form.
 
 ## GitHub configuration
 
@@ -31,15 +31,17 @@ release settings before the first image publication.
 
 ## Exact-candidate publication
 
-The release workflow creates a draft release. It checks out that tag's exact
-commit, runs formatting, Clippy, tests against a disposable Mosquitto broker,
-and builds the Docker image before publishing to GHCR. Only after the image
-push succeeds does the workflow publish the GitHub release.
+The release workflow creates a draft release. It validates the exact commit
+recorded as the draft's target, runs formatting, Clippy, tests against a
+disposable Mosquitto broker, and builds the Docker image before publishing to
+GHCR. Only after the image push succeeds does the workflow publish the GitHub
+release and create its tag.
 
 If validation or image publication fails, the release remains a draft. Use the
-workflow's manual `release_tag` input to validate and resume that draft after
-fixing the cause. Never move a published tag or publish an image from a
-different commit.
+workflow's manual `release_tag` input (for example,
+`unifi-apclients-mqtt-v0.2.0`) to validate and resume that draft after fixing
+the cause. Never move a published tag or publish an image from a different
+commit.
 
 GHCR package visibility is configured separately from repository visibility.
 If the server must pull a private package, provide a read-only package token to
