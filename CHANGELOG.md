@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.3.0...unifi-apclients-mqtt-v0.4.0) (2026-09-28)
+
+
+### Features
+
+* support Docker secret files and expand user docs ([2fa4bb5](https://github.com/Ryther/unifi-apclients-mqtt/commit/2fa4bb5cbe1c0ddb064c134153017d6f14f1105b))
+
 ## [0.3.0](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.2.0...unifi-apclients-mqtt-v0.3.0) (2026-09-28)
 
 
