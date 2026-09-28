@@ -23,6 +23,8 @@ pub enum ConfigError {
     Missing(&'static str),
     #[error("invalid value for environment variable {0}")]
     Invalid(&'static str),
+    #[error("set either {0} or its _FILE variant, not both")]
+    ConflictingSecretSources(&'static str),
 }
 
 impl Config {
@@ -84,7 +86,7 @@ impl Config {
         }
 
         let mqtt_username = optional(&env, "MQTT_USERNAME");
-        let mqtt_password = optional(&env, "MQTT_PASSWORD");
+        let mqtt_password = secret_value(&env, "MQTT_PASSWORD", "MQTT_PASSWORD_FILE")?;
         if mqtt_password.is_some() && mqtt_username.is_none() {
             return Err(ConfigError::Invalid("MQTT_PASSWORD"));
         }
@@ -92,7 +94,7 @@ impl Config {
         Ok(Self {
             unifi_url: unifi_url.trim_end_matches('/').to_owned(),
             unifi_username: required(&env, "UNIFI_USERNAME")?,
-            unifi_password: required(&env, "UNIFI_PASSWORD")?,
+            unifi_password: required_secret(&env, "UNIFI_PASSWORD", "UNIFI_PASSWORD_FILE")?,
             ap_macs,
             poll_interval,
             unifi_tls_insecure,
@@ -109,6 +111,35 @@ fn required(env: &HashMap<String, String>, name: &'static str) -> Result<String,
         .filter(|value| !value.trim().is_empty())
         .cloned()
         .ok_or(ConfigError::Missing(name))
+}
+
+fn required_secret(
+    env: &HashMap<String, String>,
+    name: &'static str,
+    file_name: &'static str,
+) -> Result<String, ConfigError> {
+    secret_value(env, name, file_name)?.ok_or(ConfigError::Missing(name))
+}
+
+fn secret_value(
+    env: &HashMap<String, String>,
+    name: &'static str,
+    file_name: &'static str,
+) -> Result<Option<String>, ConfigError> {
+    let value = optional(env, name);
+    let path = optional(env, file_name);
+    if value.is_some() && path.is_some() {
+        return Err(ConfigError::ConflictingSecretSources(name));
+    }
+
+    if let Some(path) = path {
+        let contents =
+            std::fs::read_to_string(path).map_err(|_| ConfigError::Invalid(file_name))?;
+        let secret = contents.trim_end_matches(['\r', '\n']).to_owned();
+        return Ok((!secret.trim().is_empty()).then_some(secret));
+    }
+
+    Ok(value)
 }
 
 fn optional(env: &HashMap<String, String>, name: &str) -> Option<String> {

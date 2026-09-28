@@ -16,5 +16,8 @@ plugins:
   - search
 nav:
   - Home: index.md
+  - Install: installation.md
+  - Configure: configuration.md
+  - Troubleshoot: troubleshooting.md
   - Architecture: architecture.md
   - Releasing: releasing.md

@@ -1,13 +1,16 @@
 # Architecture
 
+[Documentation home](index.md) · [← Troubleshooting](troubleshooting.md) · [Releasing →](releasing.md)
+
 The service polls UniFi Network, maps client records to configured APs, and
 publishes retained MQTT state plus Home Assistant MQTT Discovery configuration.
 All UniFi operations are read-only apart from the login request.
 
 ## Runtime flow
 
-1. `config.rs` validates HTTPS controller URL, credentials, AP MACs, poll
-   interval, and MQTT settings.
+1. `config.rs` validates the HTTPS controller URL, credentials, AP MACs, poll
+   interval, and MQTT settings. UniFi and MQTT passwords may be supplied as
+   environment values or loaded from mounted secret files with `*_FILE`.
 2. `unifi.rs` logs in through `/api/login` and reads
    `/api/s/default/stat/device` and `/api/s/default/stat/sta`.
 3. `mapper.rs` associates clients through `ap_mac`, sorts/deduplicates them,
