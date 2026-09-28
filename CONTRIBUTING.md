@@ -34,8 +34,10 @@ Never use real household client records as fixtures.
 
 The Documentation workflow builds `docs/` with MkDocs Material in strict mode
 and publishes it to GitHub Pages on `main` when `DOCS_PAGES_ENABLED=true`. The
-Sonar workflow creates a Clippy JSON report without credentials, then submits it
-to SonarQube Cloud for pushes and trusted same-repository pull requests.
+Sonar workflow creates Clippy JSON and LCOV coverage reports without
+credentials, then submits them to SonarQube Cloud for pushes and trusted
+same-repository pull requests. Coverage runs the contract suite against a
+disposable Mosquitto broker.
 
 ## Pull requests
 
