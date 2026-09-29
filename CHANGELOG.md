@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.6.0...unifi-apclients-mqtt-v0.7.0) (2026-09-29)
+
+
+### Features
+
+* add eligible clients with SQLite presence history ([#28](https://github.com/Ryther/unifi-apclients-mqtt/issues/28)) ([2618a9e](https://github.com/Ryther/unifi-apclients-mqtt/commit/2618a9e092f34cff3b2a3ddfea44412a3b28bbbf))
+
 ## [0.6.0](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.5.0...unifi-apclients-mqtt-v0.6.0) (2026-09-29)
 
 
