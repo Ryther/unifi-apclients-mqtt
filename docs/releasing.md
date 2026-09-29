@@ -47,6 +47,10 @@ pushes. A weekly workflow rescans the published `latest` image and current
 lockfile. Only after the image push succeeds does the workflow publish the
 GitHub release and create its tag.
 
+The `scratch` runtime has no distribution package database, so a clean image
+scan alone is not proof that the compiled binary has no vulnerable components.
+Keep the separate `Cargo.lock` scan and review bundled native dependencies.
+
 If validation or image publication fails, the release remains a draft. Use the
 workflow's manual `release_tag` input (for example,
 `unifi-apclients-mqtt-v0.2.0`) to validate and resume that draft after fixing

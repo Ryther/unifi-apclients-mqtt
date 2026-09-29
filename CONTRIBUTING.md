@@ -48,6 +48,11 @@ critical findings are retained in SARIF reports. Trusted `main` pushes upload
 those reports to GitHub Code Scanning. A weekly workflow also scans the
 published `latest` image and the current lockfile.
 
+When changing the Dockerfile, build the image locally and confirm its
+`scratch` runtime starts without network access. Exercise HTTPS polling,
+MQTT publication, mounted secret files, and SQLite persistence only against
+disposable local fixtures; do not use household services for this check.
+
 ## Pull requests
 
 Use a Conventional Commit title and commits (`feat:`, `fix:`, `docs:`, `ci:`,

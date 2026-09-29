@@ -29,6 +29,16 @@ All UniFi operations are read-only apart from the login request.
 6. `main.rs` drives polling and reports offline availability on API errors or
    clean shutdown without replacing the last good snapshot.
 
+## Runtime image
+
+The Docker build targets `x86_64-unknown-linux-musl` and copies the static
+binary into a `scratch` runtime. The image has no dynamic loader, shell, OS
+package manager, or OS certificate store. `reqwest` uses the WebPKI roots
+bundled by its `rustls-tls` feature. The process runs as numeric UID/GID
+`10001` and reads mounted secret files. The image provides owner-writable
+`/data` and `/tmp`; by default, SQLite history is stored in `/data`. Deployments
+must mount `/data` persistently.
+
 ## Failure behavior
 
 A valid response with no clients is an available empty snapshot. A configured

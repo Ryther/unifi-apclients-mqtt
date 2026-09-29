@@ -33,6 +33,9 @@ image: ghcr.io/ryther/unifi-apclients-mqtt:latest
 ```
 
 Use a versioned image tag when you want upgrades to happen only when you choose.
+The runtime image contains a static x86-64 musl binary on `scratch` and has no
+shell or package manager. Use `docker compose logs` to inspect the service;
+use a separate diagnostic container when you need to inspect a mounted volume.
 
 ## Use Docker Compose secrets
 
