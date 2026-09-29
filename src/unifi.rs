@@ -31,6 +31,19 @@ pub enum UniFiError {
     Mapping(#[from] MapperError),
 }
 
+impl UniFiError {
+    /// Return an operational summary that cannot expose controller URLs or API payloads.
+    pub fn safe_summary(&self) -> String {
+        match self {
+            Self::Client(_) => "UniFi HTTP client or request failure".to_owned(),
+            Self::HttpStatus(status) => format!("UniFi HTTP status {status}"),
+            Self::Api(_) => "UniFi API rejected the request".to_owned(),
+            Self::Json(_) => "invalid UniFi API JSON response".to_owned(),
+            Self::Mapping(_) => "invalid UniFi API data".to_owned(),
+        }
+    }
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct SnapshotBatch {
     pub snapshots: Vec<ApSnapshot>,

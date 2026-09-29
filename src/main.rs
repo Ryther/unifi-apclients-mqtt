@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::future::Future;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::time::MissedTickBehavior;
 use tracing::{error, info, warn};
@@ -19,13 +19,14 @@ impl SnapshotSource for UniFiClient {
     async fn fetch_snapshots(&mut self, ap_macs: &[String]) -> Result<SnapshotBatch, String> {
         UniFiClient::fetch_snapshots(self, ap_macs)
             .await
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.safe_summary())
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing_subscriber::fmt()
+        .json()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
@@ -77,8 +78,14 @@ where
                 break;
             }
             _ = ticker.tick() => {
+                let poll_started = Instant::now();
                 match source.fetch_snapshots(&config.ap_macs).await {
                     Ok(batch) => {
+                        let available_ap_count = batch.snapshots.len();
+                        let unavailable_ap_count = batch.unavailable_aps.len();
+                        let client_count = batch.snapshots.iter()
+                            .map(|snapshot| snapshot.clients.len())
+                            .sum::<usize>();
                         let new_snapshots = batch
                             .snapshots
                             .iter()
@@ -91,21 +98,29 @@ where
                                     discovered_aps.extend(
                                         new_snapshots.iter().map(|snapshot| snapshot.ap_mac.clone()),
                                     );
+                                    info!(ap_count = new_snapshots.len(), "queued Home Assistant discovery");
                                 }
-                                Err(error) => warn!(%error, "could not publish Home Assistant discovery"),
+                                Err(_) => warn!("could not publish Home Assistant discovery"),
                             }
                         }
-                        if let Err(error) = publisher.publish_snapshots(&batch.snapshots).await {
-                            warn!(%error, "could not publish AP client snapshots");
+                        if publisher.publish_snapshots(&batch.snapshots).await.is_err() {
+                            warn!("could not publish AP client snapshots");
                         }
-                        if let Err(error) = publisher.publish_unavailable(&batch.unavailable_aps).await {
-                            warn!(%error, "could not publish unavailable AP status");
+                        if publisher.publish_unavailable(&batch.unavailable_aps).await.is_err() {
+                            warn!("could not publish unavailable AP status");
                         }
+                        info!(
+                            cycle_duration_ms = poll_started.elapsed().as_millis() as u64,
+                            available_ap_count,
+                            unavailable_ap_count,
+                            client_count,
+                            "UniFi poll cycle completed"
+                        );
                     }
                     Err(error) => {
-                        warn!(%error, "UniFi poll failed; preserving the last retained snapshots");
-                        if let Err(error) = publisher.publish_unavailable(&config.ap_macs).await {
-                            warn!(%error, "could not publish AP unavailable status");
+                        warn!(failure = %error, poll_duration_ms = poll_started.elapsed().as_millis() as u64, "UniFi poll failed; preserving the last retained snapshots");
+                        if publisher.publish_unavailable(&config.ap_macs).await.is_err() {
+                            warn!("could not publish AP unavailable status");
                         }
                     }
                 }
@@ -114,15 +129,19 @@ where
     }
 
     info!("shutting down UniFi AP client poller");
-    if let Err(error) = publisher.publish_unavailable(&config.ap_macs).await {
-        error!(%error, "could not publish AP shutdown status");
+    if publisher
+        .publish_unavailable(&config.ap_macs)
+        .await
+        .is_err()
+    {
+        error!("could not publish AP shutdown status");
     }
-    if let Err(error) = publisher.publish_offline().await {
-        error!(%error, "could not publish service shutdown status");
+    if publisher.publish_offline().await.is_err() {
+        error!("could not publish service shutdown status");
     }
     tokio::time::sleep(Duration::from_millis(250)).await;
-    if let Err(error) = publisher.disconnect().await {
-        error!(%error, "could not disconnect MQTT client cleanly");
+    if publisher.disconnect().await.is_err() {
+        error!("could not disconnect MQTT client cleanly");
     }
     tokio::time::sleep(Duration::from_millis(100)).await;
     mqtt_task.abort();

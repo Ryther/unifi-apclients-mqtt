@@ -52,3 +52,26 @@ A successful empty API response publishes an empty client list. API errors
 mark availability offline and keep the last retained state, rather than
 replacing it with fabricated empty data. The client list and AP attributes are described in the
 [MQTT architecture](architecture.md#mqtt-contracts).
+
+## Logs
+
+The service writes structured JSON logs to stdout, so Docker captures them with
+the container logs. The included Compose example rotates logs at 10 MiB and
+keeps three files. The default level is `info`; set `RUST_LOG` in the service
+environment to change it, for example `RUST_LOG=debug` while diagnosing a
+problem. Remove the override after diagnosis because debug output is more
+verbose.
+
+At `info`, startup reports the configured AP count, polling interval and TLS
+verification mode. Each successful cycle reports duration and aggregate counts
+of available APs, unavailable APs and clients. MQTT connection/reconnection,
+queued Home Assistant discovery, cached-state replay and shutdown are also reported.
+Warnings identify failed UniFi polls and MQTT operations. UniFi failure logs use
+a safe summary rather than the URL or API response. Logs intentionally omit
+client details, names, AP identifiers and payloads; aggregate counts are not a
+per-client activity history.
+
+Use `docker compose logs -f unifi-apclients-mqtt` to follow the service. Review
+logs before sharing them; broker/runtime errors can still contain environmental
+details. For the agent-oriented setup and troubleshooting guide, see the
+[UniFi AP Clients MQTT guide skill](https://github.com/Ryther/unifi-apclients-mqtt/blob/main/.agents/skills/unifi-apclients-mqtt-guide/SKILL.md).

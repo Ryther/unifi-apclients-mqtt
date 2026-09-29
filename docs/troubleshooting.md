@@ -10,6 +10,13 @@ docker compose logs --tail=100 unifi-apclients-mqtt
 docker compose config
 ```
 
+Logs are JSON on stdout. A successful poll cycle reports duration plus
+available AP, unavailable AP and client counts; connection and replay events describe MQTT
+recovery. Temporarily set `RUST_LOG=debug` for more detail. The example Compose
+configuration limits local Docker log storage by rotating at 10 MiB and keeping
+three files. Review output before sharing it; never include client details,
+hostnames, IP addresses, AP/client MACs or credentials.
+
 For the secret-file example, add `-f compose.secrets.example.yaml` to both
 commands.
 
