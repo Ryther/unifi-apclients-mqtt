@@ -14,7 +14,7 @@ does not log their contents.
 | `UNIFI_AP_MACS` | Yes | — | Comma-separated MAC addresses for the access points to publish. |
 | `UNIFI_POLL_INTERVAL_SECS` | No | `5` | Poll interval in seconds; must be greater than zero. |
 | `CLIENT_HISTORY_DB` | No | `/data/client-history.db` in the published image; otherwise disabled if unset | Path to a writable persistent SQLite database for client eligibility. The image enables one additional Eligible clients sensor per AP. Mount `/data` persistently. |
-| `UNIFI_TLS_INSECURE` | No | `false` | Set `true` only when you explicitly accept an unverified controller certificate. HTTPS encryption remains enabled. |
+| `UNIFI_TLS_INSECURE` | No | `false` | Set `true` only when you explicitly accept an unverified controller certificate. HTTPS encryption remains enabled. The image uses bundled WebPKI roots, not an OS certificate store. |
 | `MQTT_HOST` | Yes | — | Broker hostname or IP reachable from the container. |
 | `MQTT_PORT` | Yes | — | Broker TCP port. |
 | `MQTT_USERNAME` | No | — | MQTT username when broker authentication is enabled. |

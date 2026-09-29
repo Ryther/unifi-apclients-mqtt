@@ -101,6 +101,16 @@ jobs:
           docker build --tag unifi-apclients-mqtt:test .
           mkdir -p "$RUNNER_TEMP/unifi-security"
           docker save --output "$RUNNER_TEMP/unifi-security/image.tar" unifi-apclients-mqtt:test
+      - name: Verify the standalone runtime starts
+        run: |
+          set +e
+          output=$(docker run --rm --network none unifi-apclients-mqtt:test 2>&1)
+          runtime_exit_code=$?
+          set -e
+          if [ "$runtime_exit_code" -ne 1 ] || [[ "$output" != *'Missing("UNIFI_URL")'* ]]; then
+            echo "$output" >&2
+            exit 1
+          fi
       - name: Scan the candidate image and Cargo lockfile
         run: |
           docker run --rm \

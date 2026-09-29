@@ -54,6 +54,11 @@ across container upgrades. The poll interval defaults to five seconds. MQTT
 credentials are optional; if
 you set a password, also set its username.
 
+The runtime image contains a statically linked x86-64 musl binary on `scratch`.
+It runs as UID/GID `10001` and has no shell or package manager. `/data` and
+`/tmp` are writable by that user; use Docker logs and mounted volumes for
+diagnosis rather than expecting an in-container shell.
+
 ## Security scanning
 
 CI scans the exact candidate Docker image and `Cargo.lock` with Trivy.
@@ -61,9 +66,11 @@ Fixable high and critical vulnerabilities fail the Docker image check before
 a release can be published. The reports are uploaded to GitHub Code Scanning
 from trusted `main` pushes. A weekly workflow rescans the published `latest`
 image and the current lockfile to detect newly disclosed vulnerabilities.
-The image scan covers the final operating system packages; the separate
+The `scratch` runtime has no distribution packages to scan. The separate
 lockfile scan covers Rust dependencies that the stripped runtime image does
-not expose. Unfixed high and critical findings remain visible in Code Scanning.
+not expose. An empty image scan alone does not establish that bundled code is
+free of vulnerabilities. Unfixed high and critical findings remain visible in
+Code Scanning.
 
 ## MQTT contract
 

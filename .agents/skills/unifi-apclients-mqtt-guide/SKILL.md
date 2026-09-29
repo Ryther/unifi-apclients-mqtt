@@ -70,6 +70,10 @@ The image creates `/data` for UID/GID 10001 and sets
 `CLIENT_HISTORY_DB=/data/client-history.db`. Keep the named volume across
 container upgrades. The history database stores client MAC addresses and
 observation times, so protect and back up the volume.
+The runtime is a static x86-64 musl binary on `scratch`; it has no shell or
+package manager. Use Docker logs to diagnose it and a separate container to
+inspect the mounted volume. `/data` and `/tmp` are owner-writable. The HTTP
+client uses bundled WebPKI roots, not an OS certificate store.
 
 ## Configure
 
@@ -131,7 +135,7 @@ The supplied Compose examples rotate logs at 10 MiB and keep three files.
 | Symptom | Checks |
 | --- | --- |
 | Container exits during startup | Check required environment values, positive poll interval, password source conflicts, and whether secret files exist and are readable by UID/GID 10001. Never paste secret contents. |
-| UniFi polls fail | Confirm container DNS/routing to `UNIFI_URL`, HTTPS port, read-only account permissions, controller availability and certificate trust. Keep `UNIFI_TLS_INSECURE=false` when the certificate is trusted. |
+| UniFi polls fail | Confirm container DNS/routing to `UNIFI_URL`, HTTPS port, read-only account permissions, controller availability and certificate trust. The `scratch` image has no OS CA store; mounting a private CA file does not add trust automatically. Keep `UNIFI_TLS_INSECURE=false` when the certificate is trusted. |
 | AP is unavailable | Confirm its MAC is in `UNIFI_AP_MACS` and is the AP's MAC, not a client or switch. A missing AP affects only that AP. |
 | MQTT connection fails | Confirm broker address/port from the container network, authentication, broker ACLs and topic access. |
 | No Home Assistant entity | Confirm HA's MQTT integration is connected, discovery is enabled, discovery prefix matches, and the service can publish retained discovery and state. Check the discovery prefix and base-topic values. |

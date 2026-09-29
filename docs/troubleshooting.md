@@ -43,9 +43,11 @@ commands.
   reachable from the container, and the account can read client and device
   statistics.
 - The service validates the controller certificate by default. Install a
-  certificate trusted by the container when possible. `UNIFI_TLS_INSECURE=true`
-  is an explicit opt-in to skipping certificate validation; use it only on a
-  network you trust.
+  publicly trusted certificate when possible. The `scratch` image has no OS
+  certificate store; `reqwest` uses the WebPKI roots bundled by its `rustls-tls`
+  feature. A private CA is not trusted merely by mounting its certificate into
+  the container. `UNIFI_TLS_INSECURE=true` is an explicit opt-in to skipping
+  certificate validation; use it only on a network you trust.
 - Check that every configured AP MAC is correct. A missing AP affects that AP
   only; it is marked unavailable while other configured APs continue.
 
@@ -76,6 +78,10 @@ retained snapshot as current.
 
 Before sharing logs or broker diagnostics, remove passwords, usernames,
 controller hostnames, AP MAC addresses, and client details.
+
+The runtime image has no shell, so `docker exec ... sh` cannot be used for
+diagnosis. Use Docker logs or a separate diagnostic container to inspect a
+mounted volume.
 
 ## SonarCloud badge says the quality gate is not computed
 

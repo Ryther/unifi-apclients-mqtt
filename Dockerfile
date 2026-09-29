@@ -2,15 +2,18 @@ FROM rust:1-bookworm@sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0070fb288a37b5
 WORKDIR /src
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY src ./src
-RUN cargo build --release --locked
-
-FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends ca-certificates \
+    && apt-get install --yes --no-install-recommends musl-tools \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --uid 10001 --create-home app \
-    && install -d -o 10001 -g 10001 -m 0700 /data
-COPY --from=builder /src/target/release/unifi-apclients-mqtt /usr/local/bin/unifi-apclients-mqtt
+    && rustup target add x86_64-unknown-linux-musl
+RUN CC_x86_64_unknown_linux_musl=musl-gcc \
+    cargo build --release --locked --target x86_64-unknown-linux-musl
+RUN install -d -m 0700 /runtime/data /runtime/tmp
+
+FROM scratch
+COPY --from=builder --chown=10001:10001 --chmod=0700 /runtime/data /data
+COPY --from=builder --chown=10001:10001 --chmod=0700 /runtime/tmp /tmp
+COPY --from=builder /src/target/x86_64-unknown-linux-musl/release/unifi-apclients-mqtt /usr/local/bin/unifi-apclients-mqtt
 ENV CLIENT_HISTORY_DB=/data/client-history.db
 USER 10001:10001
 ENTRYPOINT ["/usr/local/bin/unifi-apclients-mqtt"]
