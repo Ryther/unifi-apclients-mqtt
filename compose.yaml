@@ -3,9 +3,14 @@ services:
     build: .
     env_file:
       - .env
+    volumes:
+      - unifi_apclients_history:/data
     restart: unless-stopped
     logging:
       driver: json-file
       options:
         max-size: 10m
         max-file: "3"
+
+volumes:
+  unifi_apclients_history:

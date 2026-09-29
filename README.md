@@ -16,7 +16,8 @@ Small Rust service that polls the UniFi Network API and publishes a retained
 client snapshot for configured access points. MQTT Discovery creates a
 Home Assistant client-count sensor per AP; the sensor state is the number of
 associated clients and its attributes include the AP and client details.
-Persistent history can add an Eligible clients sensor to each AP device.
+The container image enables history and an Eligible clients sensor on each AP
+device. Mount `/data` on writable storage to preserve history across upgrades.
 
 ## Start here
 
@@ -47,7 +48,10 @@ self-signed controller certificate. Requests still use HTTPS encryption, but
 the client will not authenticate the controller certificate. Keep this option
 on the trusted local network and do not expose the service to untrusted hosts.
 
-The poll interval defaults to five seconds. MQTT credentials are optional; if
+The image stores client eligibility history at `/data/client-history.db` by
+default. Both Compose examples mount a named volume at `/data`; keep that volume
+across container upgrades. The poll interval defaults to five seconds. MQTT
+credentials are optional; if
 you set a password, also set its username.
 
 ## MQTT contract
@@ -66,7 +70,7 @@ and cached snapshots after Home Assistant restarts. Discovery is enabled by
 default and can be disabled with `HOMEASSISTANT_DISCOVERY_ENABLED=false`.
 
 The default sensor reports a client count and exposes `ap_mac`, `ap_name`, and
-`clients` as attributes. Setting `CLIENT_HISTORY_DB` also publishes an
+`clients` as attributes. With `CLIENT_HISTORY_DB` configured, the service also publishes an
 **Eligible clients** sensor on the same AP device. It lists currently connected
 clients that either stayed continuously observed for 24 hours or accumulated
 five observed hours in the last 48 hours after at least one confirmed absence

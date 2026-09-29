@@ -13,7 +13,7 @@ does not log their contents.
 | `UNIFI_PASSWORD` or `UNIFI_PASSWORD_FILE` | Yes | — | Password value or path to the mounted password file. |
 | `UNIFI_AP_MACS` | Yes | — | Comma-separated MAC addresses for the access points to publish. |
 | `UNIFI_POLL_INTERVAL_SECS` | No | `5` | Poll interval in seconds; must be greater than zero. |
-| `CLIENT_HISTORY_DB` | No | Disabled | Path to a writable persistent SQLite database for client eligibility. Enables one additional Eligible clients sensor per AP. |
+| `CLIENT_HISTORY_DB` | No | `/data/client-history.db` in the published image; otherwise disabled if unset | Path to a writable persistent SQLite database for client eligibility. The image enables one additional Eligible clients sensor per AP. Mount `/data` persistently. |
 | `UNIFI_TLS_INSECURE` | No | `false` | Set `true` only when you explicitly accept an unverified controller certificate. HTTPS encryption remains enabled. |
 | `MQTT_HOST` | Yes | — | Broker hostname or IP reachable from the container. |
 | `MQTT_PORT` | Yes | — | Broker TCP port. |
@@ -37,7 +37,7 @@ sensor state is the associated-client count; attributes include the AP name,
 AP MAC, and client details. Client device identifiers are therefore present in
 the MQTT payloads and should be protected by broker access controls.
 
-When `CLIENT_HISTORY_DB` is set, it publishes another sensor named **Eligible
+When `CLIENT_HISTORY_DB` is configured, it publishes another sensor named **Eligible
 clients** on each AP device. Its count and `clients` attribute include currently
 connected clients that have either 24 hours of continuous observed presence or
 five observed hours in the last 48 hours across sessions separated by a valid

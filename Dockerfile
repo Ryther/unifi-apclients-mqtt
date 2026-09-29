@@ -8,7 +8,9 @@ FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --uid 10001 --create-home app
+    && useradd --system --uid 10001 --create-home app \
+    && install -d -o 10001 -g 10001 -m 0700 /data
 COPY --from=builder /src/target/release/unifi-apclients-mqtt /usr/local/bin/unifi-apclients-mqtt
+ENV CLIENT_HISTORY_DB=/data/client-history.db
 USER 10001:10001
 ENTRYPOINT ["/usr/local/bin/unifi-apclients-mqtt"]
