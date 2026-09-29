@@ -108,6 +108,57 @@ fn rejects_missing_required_settings_and_invalid_values() {
 }
 
 #[test]
+fn uses_independent_mqtt_and_home_assistant_topic_defaults() {
+    let config = Config::from_env(valid_env()).expect("valid environment should parse");
+
+    assert_eq!(config.mqtt_base_topic, "unifi/apclients");
+    assert!(config.homeassistant_discovery_enabled);
+    assert_eq!(config.homeassistant_discovery_prefix, "homeassistant");
+    assert_eq!(config.homeassistant_status_topic, "homeassistant/status");
+}
+
+#[test]
+fn parses_custom_mqtt_and_home_assistant_topic_settings_independently() {
+    let mut env = valid_env();
+    env.insert("MQTT_BASE_TOPIC", "site-a/unifi");
+    env.insert("HOMEASSISTANT_DISCOVERY_ENABLED", "false");
+    env.insert("HOMEASSISTANT_DISCOVERY_PREFIX", "ha2");
+    env.insert("HOMEASSISTANT_STATUS_TOPIC", "ha/birth");
+
+    let config = Config::from_env(env).expect("custom topic settings should parse");
+
+    assert_eq!(config.mqtt_base_topic, "site-a/unifi");
+    assert!(!config.homeassistant_discovery_enabled);
+    assert_eq!(config.homeassistant_discovery_prefix, "ha2");
+    assert_eq!(config.homeassistant_status_topic, "ha/birth");
+}
+
+#[test]
+fn rejects_invalid_discovery_enabled_value() {
+    let mut env = valid_env();
+    env.insert("HOMEASSISTANT_DISCOVERY_ENABLED", "yes");
+    assert!(Config::from_env(env).is_err());
+}
+
+#[test]
+fn rejects_mqtt_wildcards_in_configured_topics() {
+    for (key, value) in [
+        ("MQTT_BASE_TOPIC", "site/+/unifi"),
+        ("MQTT_BASE_TOPIC", "site/#"),
+        ("HOMEASSISTANT_STATUS_TOPIC", "homeassistant/#"),
+        ("HOMEASSISTANT_STATUS_TOPIC", "home/+/status"),
+        ("HOMEASSISTANT_DISCOVERY_PREFIX", "homeassistant/#"),
+    ] {
+        let mut env = valid_env();
+        env.insert(key, value);
+        assert!(
+            Config::from_env(env).is_err(),
+            "wildcard should be rejected for {key}={value}"
+        );
+    }
+}
+
+#[test]
 fn reads_passwords_from_secret_files_and_removes_one_trailing_line_ending() {
     let unifi_secret = unique_secret_path("unifi");
     let mqtt_secret = unique_secret_path("mqtt");

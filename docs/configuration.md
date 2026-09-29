@@ -18,6 +18,10 @@ does not log their contents.
 | `MQTT_PORT` | Yes | — | Broker TCP port. |
 | `MQTT_USERNAME` | No | — | MQTT username when broker authentication is enabled. |
 | `MQTT_PASSWORD` or `MQTT_PASSWORD_FILE` | No | — | Password value or mounted-file path; a password requires `MQTT_USERNAME`. |
+| `MQTT_BASE_TOPIC` | No | `unifi/apclients` | Shared topic root for service status and per-AP state and availability. Do not include MQTT wildcards. |
+| `HOMEASSISTANT_DISCOVERY_ENABLED` | No | `true` | Publish Home Assistant MQTT Discovery configuration. Accepts `true` or `false`. |
+| `HOMEASSISTANT_DISCOVERY_PREFIX` | No | `homeassistant` | Home Assistant MQTT Discovery prefix; must match the MQTT integration setting. |
+| `HOMEASSISTANT_STATUS_TOPIC` | No | `homeassistant/status` | Topic where Home Assistant publishes its online birth message; discovery is replayed when `online` is received. |
 
 An empty direct password variable is treated as unset, which lets an `.env` file
 be shared by the environment and secret-file deployment examples. If both a
@@ -34,13 +38,17 @@ the MQTT payloads and should be protected by broker access controls.
 
 | Purpose | Topic |
 | --- | --- |
-| AP state snapshot | `unifi/apclients/<ap-mac-without-colons>/state` |
-| AP availability | `unifi/apclients/<ap-mac-without-colons>/availability` |
-| Service availability | `unifi/apclients/status` |
-| Home Assistant discovery | `homeassistant/sensor/unifi_apclients/<id>/config` |
+| AP state snapshot | `<MQTT_BASE_TOPIC>/<ap-mac-without-colons>/state` |
+| AP availability | `<MQTT_BASE_TOPIC>/<ap-mac-without-colons>/availability` |
+| Service availability | `<MQTT_BASE_TOPIC>/status` |
+| Home Assistant discovery | `<HOMEASSISTANT_DISCOVERY_PREFIX>/sensor/unifi_apclients/<id>/config` |
 
-State and discovery messages are retained. A successful empty API response
-publishes an empty client list. API errors mark availability offline and keep
-the last retained state, rather than replacing it with fabricated empty data.
-The client list and AP attributes are described in the
+State and discovery messages are retained. Home Assistant's `online` birth
+message prompts the service to replay discovery and cached snapshots. Setting
+`HOMEASSISTANT_DISCOVERY_ENABLED=false` stops discovery publication but does
+not remove discovery messages already retained by the broker; remove those
+retained config messages explicitly if you also want the HA entities removed.
+A successful empty API response publishes an empty client list. API errors
+mark availability offline and keep the last retained state, rather than
+replacing it with fabricated empty data. The client list and AP attributes are described in the
 [MQTT architecture](architecture.md#mqtt-contracts).
