@@ -9,15 +9,17 @@ All UniFi operations are read-only apart from the login request.
 ## Runtime flow
 
 1. `config.rs` validates the HTTPS controller URL, credentials, AP MACs, poll
-   interval, and MQTT settings. UniFi and MQTT passwords may be supplied as
-   environment values or loaded from mounted secret files with `*_FILE`.
+   interval, MQTT connection settings, topic root, and Home Assistant discovery
+   settings. UniFi and MQTT passwords may be supplied as environment values or
+   loaded from mounted secret files with `*_FILE`.
 2. `unifi.rs` logs in through `/api/login` and reads
    `/api/s/default/stat/device` and `/api/s/default/stat/sta`.
 3. `mapper.rs` associates clients through `ap_mac`, sorts/deduplicates them,
    and creates one snapshot per available configured AP.
 4. `mqtt.rs` publishes retained JSON state, per-AP availability, global
-   availability, and one discovery sensor per AP. Cached discovery and state
-   are replayed after reconnect.
+   availability, and one discovery sensor per AP. It subscribes to Home
+   Assistant's status topic and replays discovery and cached state after a
+   broker reconnect or Home Assistant's `online` birth message.
 5. `main.rs` drives polling and reports offline availability on API errors or
    clean shutdown without replacing the last good snapshot.
 
@@ -31,10 +33,13 @@ empty response is never fabricated from an API error.
 
 ## MQTT contracts
 
-Each AP has a stable state and availability topic derived from its MAC. Home
-Assistant creates one sensor whose state is the client count; the JSON payload
-also supplies AP and client attributes. Discovery uses both global service and
-per-AP availability with `availability_mode: all`.
+The `MQTT_BASE_TOPIC` setting is shared across the service: each AP has a
+stable state and availability topic derived from its MAC, plus one service
+availability topic. `HOMEASSISTANT_DISCOVERY_PREFIX` independently controls
+where discovery config is published. Home Assistant creates one sensor per AP
+whose state is the client count; the JSON payload also supplies AP and client
+attributes. Discovery uses both global service and per-AP availability with
+`availability_mode: all`.
 
 Payload examples and exact topics are documented in the
 [repository README](https://github.com/Ryther/unifi-apclients-mqtt#readme).

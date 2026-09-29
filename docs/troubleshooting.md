@@ -40,13 +40,14 @@ commands.
 
 - Check broker reachability from the container, `MQTT_PORT`, and optional
   credentials.
-- Confirm the broker permits the service to publish under
-  `unifi/apclients/` and `homeassistant/sensor/`.
+- Confirm the broker permits the service to publish under the configured
+  `MQTT_BASE_TOPIC` and `HOMEASSISTANT_DISCOVERY_PREFIX` paths, and to subscribe
+  to `HOMEASSISTANT_STATUS_TOPIC`.
 - Home Assistant needs its MQTT integration connected to the same broker and
   MQTT Discovery enabled.
 - Look for the retained discovery config under
-  `homeassistant/sensor/unifi_apclients/<id>/config`, then inspect the matching
-  AP state and availability topics from the
+  `<HOMEASSISTANT_DISCOVERY_PREFIX>/sensor/unifi_apclients/<id>/config`, then
+  inspect the matching AP state and availability topics from the
   [configuration reference](configuration.md#home-assistant-mqtt-entities).
 
 ## A snapshot appears stale

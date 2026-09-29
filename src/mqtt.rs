@@ -8,12 +8,19 @@ use serde_json::{Value, json};
 
 use crate::{config::Config, mapper::ApSnapshot};
 
-const GLOBAL_AVAILABILITY_TOPIC: &str = "unifi/apclients/status";
-
 #[derive(Clone)]
 pub struct MqttPublisher {
     client: AsyncClient,
     cache: Arc<Mutex<HashMap<String, CachedAp>>>,
+    config: MqttConfig,
+}
+
+#[derive(Clone)]
+struct MqttConfig {
+    base_topic: String,
+    discovery_enabled: bool,
+    discovery_prefix: String,
+    homeassistant_status_topic: String,
 }
 
 #[derive(Clone)]
@@ -37,8 +44,14 @@ impl MqttPublisher {
                 config.mqtt_password.as_deref().unwrap_or_default(),
             );
         }
+        let mqtt_config = MqttConfig {
+            base_topic: config.mqtt_base_topic.clone(),
+            discovery_enabled: config.homeassistant_discovery_enabled,
+            discovery_prefix: config.homeassistant_discovery_prefix.clone(),
+            homeassistant_status_topic: config.homeassistant_status_topic.clone(),
+        };
         options.set_last_will(LastWill::new(
-            GLOBAL_AVAILABILITY_TOPIC,
+            service_availability_topic_for(&mqtt_config.base_topic),
             "offline",
             QoS::AtLeastOnce,
             true,
@@ -47,6 +60,7 @@ impl MqttPublisher {
         (
             Self {
                 client,
+                config: mqtt_config,
                 cache: Arc::new(Mutex::new(
                     config
                         .ap_macs
@@ -70,13 +84,23 @@ impl MqttPublisher {
 
     pub async fn publish_online(&self) -> Result<(), rumqttc::ClientError> {
         self.client
-            .publish(GLOBAL_AVAILABILITY_TOPIC, QoS::AtLeastOnce, true, "online")
+            .publish(
+                service_availability_topic_for(&self.config.base_topic),
+                QoS::AtLeastOnce,
+                true,
+                "online",
+            )
             .await
     }
 
     pub async fn publish_offline(&self) -> Result<(), rumqttc::ClientError> {
         self.client
-            .publish(GLOBAL_AVAILABILITY_TOPIC, QoS::AtLeastOnce, true, "offline")
+            .publish(
+                service_availability_topic_for(&self.config.base_topic),
+                QoS::AtLeastOnce,
+                true,
+                "offline",
+            )
             .await
     }
 
@@ -84,13 +108,17 @@ impl MqttPublisher {
         &self,
         snapshots: &[ApSnapshot],
     ) -> Result<(), rumqttc::ClientError> {
+        if !self.config.discovery_enabled {
+            return Ok(());
+        }
         for snapshot in snapshots {
             self.client
                 .publish(
-                    discovery_topic(&snapshot.ap_mac),
+                    discovery_topic_for(&self.config.discovery_prefix, &snapshot.ap_mac),
                     QoS::AtLeastOnce,
                     true,
-                    discovery_config(&snapshot.ap_mac, &snapshot.ap_name).to_string(),
+                    discovery_config_from_mqtt(&self.config, &snapshot.ap_mac, &snapshot.ap_name)
+                        .to_string(),
                 )
                 .await?;
         }
@@ -117,7 +145,7 @@ impl MqttPublisher {
         for snapshot in snapshots {
             self.client
                 .publish(
-                    availability_topic(&snapshot.ap_mac),
+                    availability_topic_for(&self.config.base_topic, &snapshot.ap_mac),
                     QoS::AtLeastOnce,
                     true,
                     "online",
@@ -125,7 +153,7 @@ impl MqttPublisher {
                 .await?;
             self.client
                 .publish(
-                    state_topic(&snapshot.ap_mac),
+                    state_topic_for(&self.config.base_topic, &snapshot.ap_mac),
                     QoS::AtLeastOnce,
                     true,
                     serde_json::to_string(snapshot).expect("snapshot serialization is infallible"),
@@ -150,7 +178,7 @@ impl MqttPublisher {
         for ap_mac in ap_macs {
             self.client
                 .publish(
-                    availability_topic(ap_mac),
+                    availability_topic_for(&self.config.base_topic, ap_mac),
                     QoS::AtLeastOnce,
                     true,
                     "offline",
@@ -176,13 +204,15 @@ impl MqttPublisher {
             .iter()
             .filter_map(|ap| ap.snapshot.clone())
             .collect::<Vec<_>>();
-        self.publish_discovery(&snapshots).await?;
+        if self.config.discovery_enabled {
+            self.publish_discovery(&snapshots).await?;
+        }
         for ap in &cached {
             if let Some(snapshot) = &ap.snapshot {
                 if ap.available {
                     self.client
                         .publish(
-                            availability_topic(&snapshot.ap_mac),
+                            availability_topic_for(&self.config.base_topic, &snapshot.ap_mac),
                             QoS::AtLeastOnce,
                             true,
                             "online",
@@ -190,7 +220,7 @@ impl MqttPublisher {
                         .await?;
                     self.client
                         .publish(
-                            state_topic(&snapshot.ap_mac),
+                            state_topic_for(&self.config.base_topic, &snapshot.ap_mac),
                             QoS::AtLeastOnce,
                             true,
                             serde_json::to_string(snapshot)
@@ -200,7 +230,7 @@ impl MqttPublisher {
                 } else {
                     self.client
                         .publish(
-                            availability_topic(&snapshot.ap_mac),
+                            availability_topic_for(&self.config.base_topic, &snapshot.ap_mac),
                             QoS::AtLeastOnce,
                             true,
                             "offline",
@@ -212,7 +242,7 @@ impl MqttPublisher {
                 // an explicit offline marker after a broker state reset.
                 self.client
                     .publish(
-                        availability_topic(&ap.ap_mac),
+                        availability_topic_for(&self.config.base_topic, &ap.ap_mac),
                         QoS::AtLeastOnce,
                         true,
                         "offline",
@@ -228,11 +258,31 @@ pub async fn run_event_loop(mut event_loop: EventLoop, publisher: MqttPublisher)
     loop {
         match event_loop.poll().await {
             Ok(Event::Incoming(rumqttc::Packet::ConnAck(_))) => {
+                if publisher.config.discovery_enabled
+                    && let Err(error) = publisher
+                        .client
+                        .subscribe(
+                            publisher.config.homeassistant_status_topic.as_str(),
+                            QoS::AtLeastOnce,
+                        )
+                        .await
+                {
+                    tracing::warn!(%error, "could not subscribe to Home Assistant status");
+                }
                 if let Err(error) = publisher.publish_online().await {
                     tracing::warn!(%error, "could not publish MQTT online status");
                 }
                 if let Err(error) = publisher.replay_cached_state().await {
                     tracing::warn!(%error, "could not replay cached MQTT discovery and state");
+                }
+            }
+            Ok(Event::Incoming(rumqttc::Packet::Publish(message)))
+                if publisher.config.discovery_enabled
+                    && message.topic == publisher.config.homeassistant_status_topic
+                    && message.payload.as_ref() == b"online" =>
+            {
+                if let Err(error) = publisher.replay_cached_state().await {
+                    tracing::warn!(%error, "could not republish discovery after Home Assistant startup");
                 }
             }
             Ok(_) => {}
@@ -253,36 +303,79 @@ pub fn topic_id(ap_mac: &str) -> String {
 }
 
 pub fn state_topic(ap_mac: &str) -> String {
-    format!("unifi/apclients/{}/state", topic_id(ap_mac))
+    state_topic_for("unifi/apclients", ap_mac)
 }
 
 pub fn availability_topic(ap_mac: &str) -> String {
-    format!("unifi/apclients/{}/availability", topic_id(ap_mac))
+    availability_topic_for("unifi/apclients", ap_mac)
 }
 
 pub fn discovery_topic(ap_mac: &str) -> String {
+    discovery_topic_for("homeassistant", ap_mac)
+}
+
+pub fn state_topic_for(base_topic: &str, ap_mac: &str) -> String {
+    format!("{}/{}/state", base_topic, topic_id(ap_mac))
+}
+
+pub fn availability_topic_for(base_topic: &str, ap_mac: &str) -> String {
+    format!("{}/{}/availability", base_topic, topic_id(ap_mac))
+}
+
+pub fn service_availability_topic_for(base_topic: &str) -> String {
+    format!("{base_topic}/status")
+}
+
+pub fn discovery_topic_for(discovery_prefix: &str, ap_mac: &str) -> String {
     format!(
-        "homeassistant/sensor/unifi_apclients/{}/config",
+        "{discovery_prefix}/sensor/unifi_apclients/{}/config",
         topic_id(ap_mac)
     )
 }
 
 pub fn discovery_config(ap_mac: &str, ap_name: &str) -> Value {
+    discovery_config_for("unifi/apclients", ap_mac, ap_name)
+}
+
+fn discovery_config_from_mqtt(config: &MqttConfig, ap_mac: &str, ap_name: &str) -> Value {
+    discovery_config_for_topics(
+        &config.base_topic,
+        &service_availability_topic_for(&config.base_topic),
+        ap_mac,
+        ap_name,
+    )
+}
+
+pub fn discovery_config_for(base_topic: &str, ap_mac: &str, ap_name: &str) -> Value {
+    discovery_config_for_topics(
+        base_topic,
+        &service_availability_topic_for(base_topic),
+        ap_mac,
+        ap_name,
+    )
+}
+
+fn discovery_config_for_topics(
+    base_topic: &str,
+    global_availability_topic: &str,
+    ap_mac: &str,
+    ap_name: &str,
+) -> Value {
     let id = topic_id(ap_mac);
     json!({
         "name": ap_name,
         "unique_id": format!("unifi_apclients_{id}"),
-        "state_topic": state_topic(ap_mac),
-        "json_attributes_topic": state_topic(ap_mac),
+        "state_topic": state_topic_for(base_topic, ap_mac),
+        "json_attributes_topic": state_topic_for(base_topic, ap_mac),
         "value_template": "{{ value_json.clients | count }}",
         "availability": [
             {
-                "topic": GLOBAL_AVAILABILITY_TOPIC,
+                "topic": global_availability_topic,
                 "payload_available": "online",
                 "payload_not_available": "offline"
             },
             {
-                "topic": availability_topic(ap_mac),
+                "topic": availability_topic_for(base_topic, ap_mac),
                 "payload_available": "online",
                 "payload_not_available": "offline"
             }

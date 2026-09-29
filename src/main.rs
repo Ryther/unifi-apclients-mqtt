@@ -177,6 +177,10 @@ mod tests {
             mqtt_port: 1,
             mqtt_username: None,
             mqtt_password: None,
+            mqtt_base_topic: "unifi/apclients".to_owned(),
+            homeassistant_discovery_enabled: true,
+            homeassistant_discovery_prefix: "homeassistant".to_owned(),
+            homeassistant_status_topic: "homeassistant/status".to_owned(),
         }
     }
 

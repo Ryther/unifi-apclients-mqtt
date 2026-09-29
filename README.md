@@ -22,8 +22,9 @@ clients and its attributes include the AP and client details.
 For a new installation, follow the
 [installation guide](https://ryther.github.io/unifi-apclients-mqtt/installation/).
 The [configuration reference](https://ryther.github.io/unifi-apclients-mqtt/configuration/)
-explains UniFi credentials, AP selection, MQTT topics, and Home Assistant
-discovery. If the service does not appear or publish data, start with
+explains UniFi credentials, AP selection, the shared MQTT base topic, and Home
+Assistant discovery settings. If the service does not appear or publish data,
+start with
 [troubleshooting](https://ryther.github.io/unifi-apclients-mqtt/troubleshooting/).
 The guides are also available in the [`docs/` directory](docs/index.md).
 
@@ -51,6 +52,12 @@ you set a password, also set its username.
 - Availability: `unifi/apclients/<ap-mac-without-colons>/availability`
 - Global service availability: `unifi/apclients/status`
 - Home Assistant discovery: `homeassistant/sensor/unifi_apclients/<id>/config`
+
+These topic roots are configurable through `MQTT_BASE_TOPIC` and
+`HOMEASSISTANT_DISCOVERY_PREFIX`. The service listens for Home Assistant's
+`online` birth message on `HOMEASSISTANT_STATUS_TOPIC` and republishes discovery
+and cached snapshots after Home Assistant restarts. Discovery is enabled by
+default and can be disabled with `HOMEASSISTANT_DISCOVERY_ENABLED=false`.
 
 Each sensor reports a client count and exposes `ap_mac`, `ap_name`, and
 `clients` as attributes. A successful empty UniFi response is published as an

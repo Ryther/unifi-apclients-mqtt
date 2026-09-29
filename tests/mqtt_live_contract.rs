@@ -10,11 +10,27 @@ use serde_json::json;
 use unifi_apclients_mqtt::config::Config;
 use unifi_apclients_mqtt::mapper::{ApSnapshot, ClientSnapshot};
 use unifi_apclients_mqtt::mqtt::{
-    MqttPublisher, availability_topic, discovery_topic, run_event_loop, state_topic,
+    MqttPublisher, availability_topic_for, discovery_topic_for, run_event_loop, state_topic_for,
 };
 
 const AP_MAC: &str = "11:22:33:44:55:66";
 const AP_WITHOUT_SNAPSHOT: &str = "22:33:44:55:66:77";
+const MQTT_BASE_TOPIC: &str = "contract/unifi";
+const SERVICE_STATUS_TOPIC: &str = "contract/unifi/status";
+const DISCOVERY_PREFIX: &str = "ha2";
+const HOMEASSISTANT_STATUS_TOPIC: &str = "ha/status";
+
+fn state_topic(ap_mac: &str) -> String {
+    state_topic_for(MQTT_BASE_TOPIC, ap_mac)
+}
+
+fn availability_topic(ap_mac: &str) -> String {
+    availability_topic_for(MQTT_BASE_TOPIC, ap_mac)
+}
+
+fn discovery_topic(ap_mac: &str) -> String {
+    discovery_topic_for(DISCOVERY_PREFIX, ap_mac)
+}
 
 fn broker_config(host: String, port: u16) -> Config {
     Config {
@@ -28,6 +44,10 @@ fn broker_config(host: String, port: u16) -> Config {
         mqtt_port: port,
         mqtt_username: Some("publisher".to_owned()),
         mqtt_password: Some("fixture-secret".to_owned()),
+        mqtt_base_topic: MQTT_BASE_TOPIC.to_owned(),
+        homeassistant_discovery_enabled: true,
+        homeassistant_discovery_prefix: DISCOVERY_PREFIX.to_owned(),
+        homeassistant_status_topic: HOMEASSISTANT_STATUS_TOPIC.to_owned(),
     }
 }
 
@@ -77,24 +97,25 @@ async fn retained_discovery_state_and_availability_are_delivered_to_late_subscri
     options.set_keep_alive(Duration::from_secs(5));
     let (subscriber, mut subscriber_events) = AsyncClient::new(options, 20);
     subscriber
-        .subscribe(
-            "homeassistant/sensor/unifi_apclients/+/config",
-            QoS::AtLeastOnce,
-        )
+        .subscribe("ha2/sensor/unifi_apclients/+/config", QoS::AtLeastOnce)
         .await
         .expect("discovery subscription should succeed");
     subscriber
-        .subscribe("unifi/apclients/+/state", QoS::AtLeastOnce)
+        .subscribe("contract/unifi/+/state", QoS::AtLeastOnce)
         .await
         .expect("state subscription should succeed");
     subscriber
-        .subscribe("unifi/apclients/+/availability", QoS::AtLeastOnce)
+        .subscribe("contract/unifi/+/availability", QoS::AtLeastOnce)
         .await
         .expect("availability subscription should succeed");
     subscriber
-        .subscribe("unifi/apclients/status", QoS::AtLeastOnce)
+        .subscribe(SERVICE_STATUS_TOPIC, QoS::AtLeastOnce)
         .await
         .expect("service availability subscription should succeed");
+    subscriber
+        .subscribe(HOMEASSISTANT_STATUS_TOPIC, QoS::AtLeastOnce)
+        .await
+        .expect("Home Assistant status subscription should succeed");
 
     let mut retained = std::collections::HashMap::new();
     while retained.len() < 5 {
@@ -132,7 +153,75 @@ async fn retained_discovery_state_and_availability_are_delivered_to_late_subscri
             .unwrap(),
         b"offline"
     );
-    assert_eq!(retained.get("unifi/apclients/status").unwrap(), b"online");
+    assert_eq!(retained.get(SERVICE_STATUS_TOPIC).unwrap(), b"online");
+
+    // Home Assistant's online birth message prompts the service to restore
+    // discovery configuration even if the broker no longer has it retained.
+    subscriber
+        .publish(discovery_topic(AP_MAC), QoS::AtLeastOnce, true, "")
+        .await
+        .expect("discovery config removal should queue");
+    let mut removed = false;
+    let removal_deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while !removed {
+        let event = tokio::time::timeout(
+            removal_deadline.saturating_duration_since(tokio::time::Instant::now()),
+            subscriber_events.poll(),
+        )
+        .await
+        .expect("discovery config removal should be observed")
+        .expect("subscriber event loop should remain connected");
+        if let Event::Incoming(Packet::Publish(message)) = event {
+            removed = message.topic == discovery_topic(AP_MAC) && message.payload.is_empty();
+        }
+    }
+    subscriber
+        .publish(
+            HOMEASSISTANT_STATUS_TOPIC,
+            QoS::AtLeastOnce,
+            false,
+            "online",
+        )
+        .await
+        .expect("Home Assistant online event should queue");
+    let mut rediscovered = false;
+    let discovery_deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while !rediscovered {
+        let event = tokio::time::timeout(
+            discovery_deadline.saturating_duration_since(tokio::time::Instant::now()),
+            subscriber_events.poll(),
+        )
+        .await
+        .expect("discovery config should be restored after Home Assistant startup")
+        .expect("subscriber event loop should remain connected");
+        if let Event::Incoming(Packet::Publish(message)) = event {
+            rediscovered = message.topic == discovery_topic(AP_MAC)
+                && serde_json::from_slice::<serde_json::Value>(&message.payload).is_ok();
+        }
+    }
+    let mut replay_after_ha = std::collections::HashSet::new();
+    let replay_deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while replay_after_ha.len() < 3 {
+        let event = tokio::time::timeout(
+            replay_deadline.saturating_duration_since(tokio::time::Instant::now()),
+            subscriber_events.poll(),
+        )
+        .await
+        .expect("cached state should follow the discovery replay")
+        .expect("subscriber event loop should remain connected");
+        if let Event::Incoming(Packet::Publish(message)) = event
+            && [
+                discovery_topic(AP_MAC),
+                state_topic(AP_MAC),
+                availability_topic(AP_MAC),
+                availability_topic(AP_WITHOUT_SNAPSHOT),
+            ]
+            .iter()
+            .any(|topic| topic == &message.topic)
+        {
+            replay_after_ha.insert(message.topic);
+        }
+    }
 
     // The connected subscriber sees fresh cached publications on reconnect,
     // including the snapshot and online availability of a healthy AP.
@@ -162,10 +251,7 @@ async fn retained_discovery_state_and_availability_are_delivered_to_late_subscri
             .unwrap(),
         b"offline"
     );
-    assert_eq!(
-        online_replay.get("unifi/apclients/status").unwrap(),
-        b"online"
-    );
+    assert_eq!(online_replay.get(SERVICE_STATUS_TOPIC).unwrap(), b"online");
 
     publisher
         .publish_unavailable(&[AP_MAC.to_owned()])
@@ -175,8 +261,14 @@ async fn retained_discovery_state_and_availability_are_delivered_to_late_subscri
         .publish_offline()
         .await
         .expect("service offline status should queue");
-    let mut unavailable = std::collections::HashMap::new();
-    while unavailable.len() < 2 {
+    let mut unavailable = std::collections::HashMap::<String, Vec<u8>>::new();
+    while unavailable
+        .get(&availability_topic(AP_MAC))
+        .is_none_or(|payload| payload != b"offline")
+        || unavailable
+            .get(SERVICE_STATUS_TOPIC)
+            .is_none_or(|payload| payload != b"offline")
+    {
         let event = tokio::time::timeout(Duration::from_secs(10), subscriber_events.poll())
             .await
             .expect("offline MQTT messages should arrive")
@@ -189,10 +281,7 @@ async fn retained_discovery_state_and_availability_are_delivered_to_late_subscri
         unavailable.get(&availability_topic(AP_MAC)).unwrap(),
         b"offline"
     );
-    assert_eq!(
-        unavailable.get("unifi/apclients/status").unwrap(),
-        b"offline"
-    );
+    assert_eq!(unavailable.get(SERVICE_STATUS_TOPIC).unwrap(), b"offline");
 
     // Once unavailable, reconnect marks the AP offline and does not publish
     // the cached client state as if it were current.
@@ -200,8 +289,20 @@ async fn retained_discovery_state_and_availability_are_delivered_to_late_subscri
         .disconnect()
         .await
         .expect("publisher should disconnect after becoming unavailable");
-    let mut offline_replay = std::collections::HashMap::new();
-    while offline_replay.len() < 4 {
+    let mut offline_replay = std::collections::HashMap::<String, Vec<u8>>::new();
+    while offline_replay
+        .get(&discovery_topic(AP_MAC))
+        .is_none_or(|payload| serde_json::from_slice::<serde_json::Value>(payload).is_err())
+        || offline_replay
+            .get(&availability_topic(AP_MAC))
+            .is_none_or(|payload| payload != b"offline")
+        || offline_replay
+            .get(&availability_topic(AP_WITHOUT_SNAPSHOT))
+            .is_none_or(|payload| payload != b"offline")
+        || offline_replay
+            .get(SERVICE_STATUS_TOPIC)
+            .is_none_or(|payload| payload != b"online")
+    {
         let event = tokio::time::timeout(Duration::from_secs(10), subscriber_events.poll())
             .await
             .expect("offline cached MQTT state should be replayed")
@@ -221,10 +322,7 @@ async fn retained_discovery_state_and_availability_are_delivered_to_late_subscri
             .unwrap(),
         b"offline"
     );
-    assert_eq!(
-        offline_replay.get("unifi/apclients/status").unwrap(),
-        b"online"
-    );
+    assert_eq!(offline_replay.get(SERVICE_STATUS_TOPIC).unwrap(), b"online");
 
     subscriber
         .disconnect()
