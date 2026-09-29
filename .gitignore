@@ -12,4 +12,6 @@
 *.key
 *.p12
 *.pfx
+*.profraw
+__pycache__/
 secrets.*.yaml

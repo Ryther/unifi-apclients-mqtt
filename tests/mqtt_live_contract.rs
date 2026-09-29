@@ -14,19 +14,20 @@ use unifi_apclients_mqtt::mqtt::{
 };
 
 const AP_MAC: &str = "11:22:33:44:55:66";
+const AP_WITHOUT_SNAPSHOT: &str = "22:33:44:55:66:77";
 
 fn broker_config(host: String, port: u16) -> Config {
     Config {
         unifi_url: "https://controller.example.test:8443".to_owned(),
         unifi_username: "collector".to_owned(),
         unifi_password: "secret".to_owned(),
-        ap_macs: vec![AP_MAC.to_owned()],
+        ap_macs: vec![AP_MAC.to_owned(), AP_WITHOUT_SNAPSHOT.to_owned()],
         poll_interval: Duration::from_secs(5),
         unifi_tls_insecure: false,
         mqtt_host: host,
         mqtt_port: port,
-        mqtt_username: None,
-        mqtt_password: None,
+        mqtt_username: Some("publisher".to_owned()),
+        mqtt_password: Some("fixture-secret".to_owned()),
     }
 }
 
@@ -90,60 +91,140 @@ async fn retained_discovery_state_and_availability_are_delivered_to_late_subscri
         .subscribe("unifi/apclients/+/availability", QoS::AtLeastOnce)
         .await
         .expect("availability subscription should succeed");
+    subscriber
+        .subscribe("unifi/apclients/status", QoS::AtLeastOnce)
+        .await
+        .expect("service availability subscription should succeed");
 
-    let mut retained = Vec::new();
-    while retained.len() < 3 {
+    let mut retained = std::collections::HashMap::new();
+    while retained.len() < 5 {
         let event = tokio::time::timeout(Duration::from_secs(10), subscriber_events.poll())
             .await
             .expect("retained MQTT messages should arrive")
             .expect("subscriber event loop should remain connected");
         if let Event::Incoming(Packet::Publish(message)) = event {
-            retained.push((message.topic, message.payload.to_vec()));
+            retained.insert(message.topic, message.payload.to_vec());
         }
     }
 
     let discovery_payload = retained
-        .iter()
-        .find(|(topic, _)| topic == &discovery_topic(AP_MAC))
+        .get(&discovery_topic(AP_MAC))
         .expect("retained discovery message should arrive");
     let discovery: serde_json::Value =
-        serde_json::from_slice(&discovery_payload.1).expect("discovery payload should be JSON");
+        serde_json::from_slice(discovery_payload).expect("discovery payload should be JSON");
     assert_eq!(discovery["state_topic"], state_topic(AP_MAC));
 
     let state_payload = retained
-        .iter()
-        .find(|(topic, _)| topic == &state_topic(AP_MAC))
+        .get(&state_topic(AP_MAC))
         .expect("retained state message should arrive");
     assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&state_payload.1).unwrap(),
+        serde_json::from_slice::<serde_json::Value>(state_payload).unwrap(),
         json!(snapshot)
     );
 
     let availability_payload = retained
-        .iter()
-        .find(|(topic, _)| topic == &availability_topic(AP_MAC))
+        .get(&availability_topic(AP_MAC))
         .expect("retained availability message should arrive");
-    assert_eq!(availability_payload.1, b"online");
+    assert_eq!(availability_payload, b"online");
+    assert_eq!(
+        retained
+            .get(&availability_topic(AP_WITHOUT_SNAPSHOT))
+            .unwrap(),
+        b"offline"
+    );
+    assert_eq!(retained.get("unifi/apclients/status").unwrap(), b"online");
 
-    // A fresh broker session must receive cached discovery and snapshots
-    // again, even if the broker lost its retained store during reconnection.
+    // The connected subscriber sees fresh cached publications on reconnect,
+    // including the snapshot and online availability of a healthy AP.
     publisher
         .disconnect()
         .await
         .expect("publisher should disconnect");
-    let mut replayed_topics = std::collections::HashSet::new();
-    while replayed_topics.len() < 3 {
+    let mut online_replay = std::collections::HashMap::new();
+    while online_replay.len() < 5 {
         let event = tokio::time::timeout(Duration::from_secs(10), subscriber_events.poll())
             .await
             .expect("cached MQTT state should be replayed after reconnect")
             .expect("subscriber event loop should remain connected");
         if let Event::Incoming(Packet::Publish(message)) = event {
-            replayed_topics.insert(message.topic);
+            online_replay.insert(message.topic, message.payload.to_vec());
         }
     }
-    assert!(replayed_topics.contains(&discovery_topic(AP_MAC)));
-    assert!(replayed_topics.contains(&state_topic(AP_MAC)));
-    assert!(replayed_topics.contains(&availability_topic(AP_MAC)));
+    assert!(online_replay.contains_key(&discovery_topic(AP_MAC)));
+    assert!(online_replay.contains_key(&state_topic(AP_MAC)));
+    assert_eq!(
+        online_replay.get(&availability_topic(AP_MAC)).unwrap(),
+        b"online"
+    );
+    assert_eq!(
+        online_replay
+            .get(&availability_topic(AP_WITHOUT_SNAPSHOT))
+            .unwrap(),
+        b"offline"
+    );
+    assert_eq!(
+        online_replay.get("unifi/apclients/status").unwrap(),
+        b"online"
+    );
+
+    publisher
+        .publish_unavailable(&[AP_MAC.to_owned()])
+        .await
+        .expect("AP unavailable status should queue");
+    publisher
+        .publish_offline()
+        .await
+        .expect("service offline status should queue");
+    let mut unavailable = std::collections::HashMap::new();
+    while unavailable.len() < 2 {
+        let event = tokio::time::timeout(Duration::from_secs(10), subscriber_events.poll())
+            .await
+            .expect("offline MQTT messages should arrive")
+            .expect("subscriber event loop should remain connected");
+        if let Event::Incoming(Packet::Publish(message)) = event {
+            unavailable.insert(message.topic, message.payload.to_vec());
+        }
+    }
+    assert_eq!(
+        unavailable.get(&availability_topic(AP_MAC)).unwrap(),
+        b"offline"
+    );
+    assert_eq!(
+        unavailable.get("unifi/apclients/status").unwrap(),
+        b"offline"
+    );
+
+    // Once unavailable, reconnect marks the AP offline and does not publish
+    // the cached client state as if it were current.
+    publisher
+        .disconnect()
+        .await
+        .expect("publisher should disconnect after becoming unavailable");
+    let mut offline_replay = std::collections::HashMap::new();
+    while offline_replay.len() < 4 {
+        let event = tokio::time::timeout(Duration::from_secs(10), subscriber_events.poll())
+            .await
+            .expect("offline cached MQTT state should be replayed")
+            .expect("subscriber event loop should remain connected");
+        if let Event::Incoming(Packet::Publish(message)) = event {
+            offline_replay.insert(message.topic, message.payload.to_vec());
+        }
+    }
+    assert!(offline_replay.contains_key(&discovery_topic(AP_MAC)));
+    assert_eq!(
+        offline_replay.get(&availability_topic(AP_MAC)).unwrap(),
+        b"offline"
+    );
+    assert_eq!(
+        offline_replay
+            .get(&availability_topic(AP_WITHOUT_SNAPSHOT))
+            .unwrap(),
+        b"offline"
+    );
+    assert_eq!(
+        offline_replay.get("unifi/apclients/status").unwrap(),
+        b"online"
+    );
 
     subscriber
         .disconnect()

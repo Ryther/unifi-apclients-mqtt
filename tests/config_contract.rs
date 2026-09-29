@@ -82,6 +82,10 @@ fn rejects_missing_required_settings_and_invalid_values() {
     missing_url.remove("UNIFI_URL");
     assert!(Config::from_env(missing_url).is_err());
 
+    let mut blank_mqtt_host = valid_env();
+    blank_mqtt_host.insert("MQTT_HOST", "  ");
+    assert!(Config::from_env(blank_mqtt_host).is_err());
+
     let mut bad_port = valid_env();
     bad_port.insert("MQTT_PORT", "not-a-port");
     assert!(Config::from_env(bad_port).is_err());
@@ -89,6 +93,10 @@ fn rejects_missing_required_settings_and_invalid_values() {
     let mut bad_bool = valid_env();
     bad_bool.insert("UNIFI_TLS_INSECURE", "yes");
     assert!(Config::from_env(bad_bool).is_err());
+
+    let mut bad_ap_mac = valid_env();
+    bad_ap_mac.insert("UNIFI_AP_MACS", "not-a-mac");
+    assert!(Config::from_env(bad_ap_mac).is_err());
 
     let mut plaintext_url = valid_env();
     plaintext_url.insert("UNIFI_URL", "http://controller.example.test:8443");
