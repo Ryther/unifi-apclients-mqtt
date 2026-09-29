@@ -3,11 +3,11 @@ use std::future::Future;
 use std::time::{Duration, Instant};
 
 use tokio::time::MissedTickBehavior;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 use unifi_apclients_mqtt::{
     config::Config,
-    mqtt::{MqttPublisher, run_event_loop},
+    mqtt::{MqttPublisher, log_mqtt_failure, run_event_loop},
     unifi::{SnapshotBatch, UniFiClient},
 };
 
@@ -93,22 +93,29 @@ where
                             .cloned()
                             .collect::<Vec<_>>();
                         if !new_snapshots.is_empty() {
-                            match publisher.publish_discovery(&new_snapshots).await {
-                                Ok(()) => {
-                                    discovered_aps.extend(
-                                        new_snapshots.iter().map(|snapshot| snapshot.ap_mac.clone()),
-                                    );
-                                    info!(ap_count = new_snapshots.len(), "queued Home Assistant discovery");
-                                }
-                                Err(_) => warn!("could not publish Home Assistant discovery"),
+                            let discovery_result = publisher.publish_discovery(&new_snapshots).await;
+                            if discovery_result.is_ok() {
+                                discovered_aps.extend(
+                                    new_snapshots.iter().map(|snapshot| snapshot.ap_mac.clone()),
+                                );
+                                info!(ap_count = new_snapshots.len(), "queued Home Assistant discovery");
                             }
+                            log_mqtt_failure(
+                                discovery_result.is_err(),
+                                false,
+                                "publish_home_assistant_discovery",
+                            );
                         }
-                        if publisher.publish_snapshots(&batch.snapshots).await.is_err() {
-                            warn!("could not publish AP client snapshots");
-                        }
-                        if publisher.publish_unavailable(&batch.unavailable_aps).await.is_err() {
-                            warn!("could not publish unavailable AP status");
-                        }
+                        log_mqtt_failure(
+                            publisher.publish_snapshots(&batch.snapshots).await.is_err(),
+                            false,
+                            "publish_ap_client_snapshots",
+                        );
+                        log_mqtt_failure(
+                            publisher.publish_unavailable(&batch.unavailable_aps).await.is_err(),
+                            false,
+                            "publish_unavailable_ap_status",
+                        );
                         info!(
                             cycle_duration_ms = poll_started.elapsed().as_millis() as u64,
                             available_ap_count,
@@ -119,9 +126,11 @@ where
                     }
                     Err(error) => {
                         warn!(failure = %error, poll_duration_ms = poll_started.elapsed().as_millis() as u64, "UniFi poll failed; preserving the last retained snapshots");
-                        if publisher.publish_unavailable(&config.ap_macs).await.is_err() {
-                            warn!("could not publish AP unavailable status");
-                        }
+                        log_mqtt_failure(
+                            publisher.publish_unavailable(&config.ap_macs).await.is_err(),
+                            false,
+                            "publish_ap_unavailable_status",
+                        );
                     }
                 }
             }
@@ -129,20 +138,25 @@ where
     }
 
     info!("shutting down UniFi AP client poller");
-    if publisher
-        .publish_unavailable(&config.ap_macs)
-        .await
-        .is_err()
-    {
-        error!("could not publish AP shutdown status");
-    }
-    if publisher.publish_offline().await.is_err() {
-        error!("could not publish service shutdown status");
-    }
+    log_mqtt_failure(
+        publisher
+            .publish_unavailable(&config.ap_macs)
+            .await
+            .is_err(),
+        true,
+        "publish_ap_shutdown_status",
+    );
+    log_mqtt_failure(
+        publisher.publish_offline().await.is_err(),
+        true,
+        "publish_service_shutdown_status",
+    );
     tokio::time::sleep(Duration::from_millis(250)).await;
-    if publisher.disconnect().await.is_err() {
-        error!("could not disconnect MQTT client cleanly");
-    }
+    log_mqtt_failure(
+        publisher.disconnect().await.is_err(),
+        true,
+        "disconnect_mqtt_client",
+    );
     tokio::time::sleep(Duration::from_millis(100)).await;
     mqtt_task.abort();
     let _ = tokio::time::timeout(Duration::from_secs(2), mqtt_task).await;

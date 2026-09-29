@@ -276,24 +276,27 @@ pub async fn run_event_loop(mut event_loop: EventLoop, publisher: MqttPublisher)
                     session_present = ack.session_present,
                     "connected to MQTT broker"
                 );
-                if publisher.config.discovery_enabled
-                    && publisher
+                if publisher.config.discovery_enabled {
+                    let subscribe_failed = publisher
                         .client
                         .subscribe(
                             publisher.config.homeassistant_status_topic.as_str(),
                             QoS::AtLeastOnce,
                         )
                         .await
-                        .is_err()
-                {
-                    tracing::warn!("could not subscribe to Home Assistant status");
+                        .is_err();
+                    log_mqtt_failure(subscribe_failed, false, "subscribe_home_assistant_status");
                 }
-                if publisher.publish_online().await.is_err() {
-                    tracing::warn!("could not publish MQTT online status");
-                }
-                if publisher.replay_cached_state().await.is_err() {
-                    tracing::warn!("could not replay cached MQTT discovery and state");
-                }
+                log_mqtt_failure(
+                    publisher.publish_online().await.is_err(),
+                    false,
+                    "publish_service_online_status",
+                );
+                log_mqtt_failure(
+                    publisher.replay_cached_state().await.is_err(),
+                    false,
+                    "replay_cached_mqtt_state",
+                );
             }
             Ok(Event::Incoming(rumqttc::Packet::Publish(message)))
                 if publisher.config.discovery_enabled
@@ -301,15 +304,27 @@ pub async fn run_event_loop(mut event_loop: EventLoop, publisher: MqttPublisher)
                     && message.payload.as_ref() == b"online" =>
             {
                 tracing::debug!("Home Assistant reported online; replaying discovery and state");
-                if publisher.replay_cached_state().await.is_err() {
-                    tracing::warn!("could not republish discovery after Home Assistant startup");
-                }
+                log_mqtt_failure(
+                    publisher.replay_cached_state().await.is_err(),
+                    false,
+                    "replay_state_after_home_assistant_startup",
+                );
             }
             Ok(_) => {}
             Err(_) => {
-                tracing::warn!("MQTT connection error");
+                log_mqtt_failure(true, false, "mqtt_connection");
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
+        }
+    }
+}
+
+pub fn log_mqtt_failure(failed: bool, is_shutdown: bool, operation: &'static str) {
+    if failed {
+        if is_shutdown {
+            tracing::error!(operation, "MQTT operation failed");
+        } else {
+            tracing::warn!(operation, "MQTT operation failed");
         }
     }
 }
@@ -406,4 +421,54 @@ fn discovery_config_for_topics(
             "identifiers": [ap_mac]
         }
     })
+}
+
+#[cfg(test)]
+mod logging_tests {
+    use std::{io, sync::Mutex};
+
+    use super::log_mqtt_failure;
+
+    #[derive(Clone)]
+    struct CaptureWriter(std::sync::Arc<Mutex<Vec<u8>>>);
+
+    impl io::Write for CaptureWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0
+                .lock()
+                .expect("capture buffer lock")
+                .extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn emits_structured_failure_operations_only_for_failed_requests() {
+        let buffer = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let writer_buffer = buffer.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .json()
+            .with_ansi(false)
+            .with_writer(move || CaptureWriter(writer_buffer.clone()))
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            log_mqtt_failure(true, false, "publish_state");
+            log_mqtt_failure(true, true, "shutdown_status");
+            log_mqtt_failure(false, false, "ignored_operation");
+        });
+
+        let output = String::from_utf8(buffer.lock().expect("capture buffer lock").clone())
+            .expect("JSON logs are UTF-8");
+        assert_eq!(output.lines().count(), 2);
+        assert!(output.contains("\"operation\":\"publish_state\""));
+        assert!(output.contains("\"operation\":\"shutdown_status\""));
+        assert!(!output.contains("ignored_operation"));
+        assert!(output.contains("\"level\":\"WARN\""));
+        assert!(output.contains("\"level\":\"ERROR\""));
+    }
 }
