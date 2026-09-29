@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.7.0...unifi-apclients-mqtt-v0.8.0) (2026-09-29)
+
+
+### Features
+
+* persist client history by default in container ([#30](https://github.com/Ryther/unifi-apclients-mqtt/issues/30)) ([43ca151](https://github.com/Ryther/unifi-apclients-mqtt/commit/43ca151924296eea8037551ebf0fe6d34ab23de1))
+
+
+### Bug Fixes
+
+* preserve baseline checkout for external PR analysis ([#31](https://github.com/Ryther/unifi-apclients-mqtt/issues/31)) ([ec09462](https://github.com/Ryther/unifi-apclients-mqtt/commit/ec094628e638cbfeedd859574b61e197126dfefd))
+
 ## [0.7.0](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.6.0...unifi-apclients-mqtt-v0.7.0) (2026-09-29)
 
 
