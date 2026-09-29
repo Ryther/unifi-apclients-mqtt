@@ -16,6 +16,8 @@ concurrency:
 jobs:
   clippy:
     name: Sonar Clippy report
+    outputs:
+      report_present: ${{ steps.report.outputs.artifact-id != '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -26,6 +28,10 @@ jobs:
         with:
           toolchain: 1.98.1
           components: clippy, llvm-tools-preview
+      - name: Test the required Sonar status policy
+        run: |
+          python3 script/test_sonar_gate.py
+          python3 script/test_sonar_community.py
       - name: Install cargo-llvm-cov
         run: cargo install --locked --version 0.8.5 cargo-llvm-cov
       - name: Generate Clippy JSON without Sonar credentials
@@ -51,8 +57,9 @@ jobs:
             docker logs sonar-mqtt-broker
             exit 1
           fi
-          cargo llvm-cov --locked --all-features --lcov --output-path lcov.info
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+          cargo llvm-cov --locked --all-features --fail-under-lines 90 --lcov --output-path lcov.info
+      - id: report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sonar-clippy-report
           path: |
@@ -62,12 +69,14 @@ jobs:
           retention-days: 7
 
   cloud:
-    name: Sonar Cloud
+    name: Sonar analysis
     if: >-
       github.event_name == 'push' ||
       (github.event.pull_request.head.repo.full_name == github.repository &&
        github.event.pull_request.user.login != 'dependabot[bot]')
     needs: clippy
+    outputs:
+      report_present: ${{ needs.clippy.outputs.report_present }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -88,3 +97,111 @@ jobs:
             -Dsonar.rust.clippyReport.reportPaths=clippy-report.json
             -Dsonar.rust.lcov.reportPaths=lcov.info
             -Dsonar.qualitygate.wait=true
+
+  community:
+    name: Sonar Community (external PR)
+    if: >-
+      github.event_name == 'pull_request' &&
+      (github.event.pull_request.head.repo.full_name != github.repository ||
+       github.event.pull_request.user.login == 'dependabot[bot]')
+    needs: clippy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      report_present: ${{ steps.community-report.outputs.artifact-id != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: baseline
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: sonar-clippy-report
+      - name: Start disposable SonarQube Community Build
+        run: |
+          sudo sysctl -w vm.max_map_count=1048576
+          docker run --detach --rm --name sonar-community \
+            --memory=4g --cpus=2 --publish 127.0.0.1:9000:9000 \
+            sonarqube@sha256:4905574ab8584dcac1a06c01cdc43a4ce9e369723ac4a7ab1d029c1bf71e6fe9
+          for attempt in $(seq 1 60); do
+            if docker exec sonar-community curl -fsS -X PUT http://127.0.0.1:9001/_cluster/settings \
+                -H 'Content-Type: application/json' \
+                -d '{"persistent":{"cluster.routing.allocation.disk.watermark.low":"10gb","cluster.routing.allocation.disk.watermark.high":"5gb","cluster.routing.allocation.disk.watermark.flood_stage":"2gb"}}'; then
+              break
+            fi
+            if [ "$attempt" -eq 60 ]; then exit 1; fi
+            sleep 2
+          done
+      - name: Analyze the external pull request without repository secrets
+        id: scan
+        continue-on-error: true
+        run: >-
+          python3 baseline/script/sonar_community.py
+          --source "$GITHUB_WORKSPACE"
+          --output "$RUNNER_TEMP/sonar-report"
+      - name: Publish the Community analysis report
+        if: always()
+        env:
+          SCAN_OUTCOME: ${{ steps.scan.outcome }}
+        run: |
+          if [ ! -s "$RUNNER_TEMP/sonar-report/report.md" ]; then
+            echo 'Sonar Community did not produce a report.' >&2
+            mkdir -p "$RUNNER_TEMP/sonar-report"
+            docker logs sonar-community > "$RUNNER_TEMP/sonar-report/server.log" 2>&1 || true
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/sonar-report/report.md" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$SCAN_OUTCOME" != success ]; then
+            docker logs sonar-community > "$RUNNER_TEMP/sonar-report/server.log" 2>&1 || true
+            exit 1
+          fi
+      - id: community-report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: sonar-community-report
+          path: ${{ runner.temp }}/sonar-report/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Link the complete Community report
+        if: always()
+        run: echo "[Download the Sonar Community report](${{ steps.community-report.outputs.artifact-url }})" >> "$GITHUB_STEP_SUMMARY"
+      - name: Stop the disposable Sonar server
+        if: always()
+        run: docker stop sonar-community >/dev/null 2>&1 || true
+
+  required:
+    name: Sonar Cloud
+    if: always()
+    needs: [clippy, cloud, community]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: baseline
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: candidate
+          persist-credentials: false
+      - name: Require coverage and the analysis expected for this event
+        env:
+          SONAR_EVENT_NAME: ${{ github.event_name }}
+          SONAR_TRUSTED_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]' }}
+          SONAR_COVERAGE_RESULT: ${{ needs.clippy.result }}
+          SONAR_CLOUD_RESULT: ${{ needs.cloud.result }}
+          SONAR_COMMUNITY_RESULT: ${{ needs.community.result }}
+          SONAR_REPORT_PRESENT: ${{ (needs.cloud.result == 'success' && needs.cloud.outputs.report_present == 'true') || (needs.community.result == 'success' && needs.community.outputs.report_present == 'true') }}
+        run: |
+          if [ -f baseline/script/sonar_gate.py ]; then
+            python3 baseline/script/sonar_gate.py
+          else
+            python3 candidate/script/sonar_gate.py
+          fi

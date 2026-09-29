@@ -18,15 +18,19 @@ Contents, Issues, and Pull requests read/write permissions. The built-in
 `GITHUB_TOKEN` does not trigger follow-up CI for bot-created pull requests.
 Set `SONAR_TOKEN` to a project analysis token for the SonarQube Cloud project
 `unifi-apclients-mqtt`. Sonar runs only on `main` pushes and
-same-repository pull requests; its Clippy report job has no Sonar secret. Allow
-GitHub Actions to create pull requests in repository settings if the
-organization requires that setting.
+trusted same-repository pull requests; its Clippy and coverage report job has
+no Sonar secret. The required `Sonar Cloud` status fails when coverage or the
+expected analysis report is missing or fails. Fork and Dependabot pull
+requests are analyzed on a disposable SonarQube Community Build with a
+job-scoped token instead of the SonarCloud secret. Allow GitHub Actions to
+create pull requests in repository settings if the organization requires that
+setting.
 
 The `main` branch rules require these checks: `Conventional Commits`, `Workflow
 lint`, `Secrets`, `Rust (1.90.0)`, `Rust (1.98.1)`, `Docker image`, `build`
 (documentation), `CodeQL (rust)`, `CodeQL (actions)`, `Sonar Clippy report`,
-and `Sonar Cloud`. The Cloud scan is skipped for fork and Dependabot pull
-requests because they do not receive the project token. Branch rules require
+and `Sonar Cloud`. Fork and Dependabot pull requests use the disposable
+Community scan because they do not receive the project token. Branch rules require
 pull requests and current-base checks, enforce linear history and conversation
 resolution, and disallow force pushes and branch deletion. Review security and
 release settings before the first image publication.

@@ -82,3 +82,15 @@ fn maps_a_successful_empty_response_to_an_available_empty_snapshot() {
     assert_eq!(value["available"], true);
     assert_eq!(value["clients"], json!([]));
 }
+
+#[test]
+fn rejects_a_client_response_that_reports_an_api_error() {
+    let error = map_ap_snapshot(
+        "11:22:33:44:55:66",
+        "Living Room AP",
+        r#"{"meta":{"rc":"error"},"data":[]}"#,
+    )
+    .expect_err("an unsuccessful API response must not become an empty snapshot");
+
+    assert!(error.to_string().contains("unsuccessful client response"));
+}

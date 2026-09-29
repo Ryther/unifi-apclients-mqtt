@@ -49,9 +49,6 @@ impl Config {
             .split(',')
             .map(|mac| normalize_mac(mac.trim()))
             .collect::<Result<Vec<_>, _>>()?;
-        if ap_macs.is_empty() {
-            return Err(ConfigError::Invalid("UNIFI_AP_MACS"));
-        }
 
         let poll_interval = env
             .get("UNIFI_POLL_INTERVAL_SECS")
@@ -81,9 +78,6 @@ impl Config {
             .ok_or(ConfigError::Invalid("MQTT_PORT"))?;
 
         let mqtt_host = required(&env, "MQTT_HOST")?;
-        if mqtt_host.trim().is_empty() {
-            return Err(ConfigError::Invalid("MQTT_HOST"));
-        }
 
         let mqtt_username = optional(&env, "MQTT_USERNAME");
         let mqtt_password = secret_value(&env, "MQTT_PASSWORD", "MQTT_PASSWORD_FILE")?;

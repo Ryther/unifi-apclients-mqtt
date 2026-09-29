@@ -60,7 +60,7 @@ fn start_fixture(fail_client_stats: bool) -> Fixture {
                             let body = match request_number {
                                 0 => r#"{"meta":{"rc":"ok"},"data":[]}"#,
                                 1 => {
-                                    r#"{"meta":{"rc":"ok"},"data":[{"mac":"11:22:33:44:55:66","name":"Living Room AP"},{"mac":"22:33:44:55:66:77","name":"Office AP"}]}"#
+                                    r#"{"meta":{"rc":"ok"},"data":[{"mac":"11:22:33:44:55:66","name":"Living Room AP"},{"mac":"22:33:44:55:66:77","name":"Office AP"},{"mac":"33:44:55:66:77:88","name_override":"Guest AP"},{"name":"device without a MAC"}]}"#
                                 }
                                 2 if fail_client_stats => r#"{"meta":{"rc":"error"},"data":[]}"#,
                                 2 => {
@@ -79,6 +79,102 @@ fn start_fixture(fail_client_stats: bool) -> Fixture {
                     let _ = sender.send(Err(error));
                 }
             }
+        }
+    });
+
+    Fixture {
+        base_url: format!("http://{address}"),
+        requests,
+        thread,
+    }
+}
+
+fn start_status_fixture(login_status: u16, device_status: u16) -> Fixture {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind local fixture");
+    let address = listener.local_addr().expect("fixture address");
+    let (sender, requests) = mpsc::channel();
+
+    let thread = thread::spawn(move || {
+        let mut cookie_seen = false;
+        for (request_number, status) in [(0, login_status), (1, device_status)] {
+            if request_number == 1 && login_status != 200 {
+                break;
+            }
+            let (mut stream, _) = listener.accept().expect("accept fixture request");
+            let (path, headers, body) = read_request(&mut stream).expect("read fixture request");
+            handle_request(request_number, &path, &headers, &body, &mut cookie_seen)
+                .expect("request should follow the expected API contract");
+            sender.send(Ok(path)).expect("test should receive request");
+            write_response(&mut stream, status, r#"{"meta":{"rc":"ok"},"data":[]}"#);
+        }
+    });
+
+    Fixture {
+        base_url: format!("http://{address}"),
+        requests,
+        thread,
+    }
+}
+
+fn start_expired_session_fixture() -> Fixture {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind local fixture");
+    let address = listener.local_addr().expect("fixture address");
+    let (sender, requests) = mpsc::channel();
+
+    let thread = thread::spawn(move || {
+        let mut cookie_seen = false;
+        for request_number in 0..5 {
+            let (mut stream, _) = listener.accept().expect("accept fixture request");
+            let (path, headers, body) = read_request(&mut stream).expect("read fixture request");
+            let contract_number = match request_number {
+                0 | 2 => 0,
+                1 | 3 => 1,
+                4 => 2,
+                _ => unreachable!(),
+            };
+            handle_request(contract_number, &path, &headers, &body, &mut cookie_seen)
+                .expect("request should follow the expected API contract");
+            sender.send(Ok(path)).expect("test should receive request");
+            let (status, response) = match request_number {
+                0 | 2 => (200, r#"{"meta":{"rc":"ok"},"data":[]}"#),
+                1 => (401, r#"{"meta":{"rc":"error"},"data":[]}"#),
+                3 => (
+                    200,
+                    r#"{"meta":{"rc":"ok"},"data":[{"mac":"11:22:33:44:55:66","name":"Living Room AP"}]}"#,
+                ),
+                4 => (200, r#"{"meta":{"rc":"ok"},"data":[]}"#),
+                _ => unreachable!(),
+            };
+            write_response(&mut stream, status, response);
+        }
+    });
+
+    Fixture {
+        base_url: format!("http://{address}"),
+        requests,
+        thread,
+    }
+}
+
+fn start_optional_metadata_fixture() -> Fixture {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind local fixture");
+    let address = listener.local_addr().expect("fixture address");
+    let (sender, requests) = mpsc::channel();
+
+    let thread = thread::spawn(move || {
+        let mut cookie_seen = false;
+        for request_number in 0..3 {
+            let (mut stream, _) = listener.accept().expect("accept fixture request");
+            let (path, headers, body) = read_request(&mut stream).expect("read fixture request");
+            handle_request(request_number, &path, &headers, &body, &mut cookie_seen)
+                .expect("request should follow the expected API contract");
+            sender.send(Ok(path)).expect("test should receive request");
+            let response = match request_number {
+                0 | 2 => r#"{"data":[]}"#,
+                1 => r#"{"meta":{},"data":[{"mac":"11:22:33:44:55:66","name":"Fixture AP"}]}"#,
+                _ => unreachable!(),
+            };
+            write_response(&mut stream, 200, response);
         }
     });
 
@@ -238,7 +334,7 @@ async fn keeps_known_snapshots_and_reports_only_missing_requested_aps() {
     let fixture = start_fixture(false);
     let config = config_for(&fixture.base_url);
     let mut client = UniFiClient::new(&config).expect("client should build");
-    let missing = "33:44:55:66:77:88".to_owned();
+    let missing = "44:55:66:77:88:99".to_owned();
     let requested = vec![AP_ONE.to_owned(), missing.clone()];
 
     let batch = client
@@ -269,6 +365,107 @@ async fn returns_an_error_when_client_api_reports_failure() {
 
     assert!(client.fetch_snapshots(&requested).await.is_err());
 
+    for _ in 0..3 {
+        fixture
+            .requests
+            .recv()
+            .expect("fixture request result")
+            .expect("request should match");
+    }
+    fixture.thread.join().expect("fixture thread should finish");
+}
+
+#[tokio::test]
+async fn logs_in_again_and_retries_once_when_the_session_expires() {
+    let fixture = start_expired_session_fixture();
+    let config = config_for(&fixture.base_url);
+    let mut client = UniFiClient::new(&config).expect("client should build");
+
+    let batch = client
+        .fetch_snapshots(&[AP_ONE.to_owned()])
+        .await
+        .expect("expired session should be renewed and request retried");
+
+    assert_eq!(batch.snapshots.len(), 1);
+    assert_eq!(batch.snapshots[0].ap_name, "Living Room AP");
+    assert!(batch.unavailable_aps.is_empty());
+    let paths = (0..5)
+        .map(|_| {
+            fixture
+                .requests
+                .recv()
+                .expect("fixture request result")
+                .expect("request should match")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        paths,
+        [
+            "/api/login",
+            "/api/s/default/stat/device",
+            "/api/login",
+            "/api/s/default/stat/device",
+            "/api/s/default/stat/sta"
+        ]
+    );
+    fixture.thread.join().expect("fixture thread should finish");
+}
+
+#[tokio::test]
+async fn returns_http_status_errors_from_login_and_statistics_requests() {
+    let failed_login = start_status_fixture(503, 200);
+    let config = config_for(&failed_login.base_url);
+    let mut client = UniFiClient::new(&config).expect("client should build");
+    let error = client
+        .fetch_snapshots(&[AP_ONE.to_owned()])
+        .await
+        .expect_err("non-success login status should be returned");
+    assert!(error.to_string().contains("503"));
+    failed_login
+        .requests
+        .recv()
+        .expect("login request should arrive")
+        .expect("login request should match");
+    failed_login
+        .thread
+        .join()
+        .expect("login status fixture should finish");
+
+    let failed_statistics = start_status_fixture(200, 503);
+    let config = config_for(&failed_statistics.base_url);
+    let mut client = UniFiClient::new(&config).expect("client should build");
+    let error = client
+        .fetch_snapshots(&[AP_ONE.to_owned()])
+        .await
+        .expect_err("non-success statistics status should be returned");
+    assert!(error.to_string().contains("503"));
+    for _ in 0..2 {
+        failed_statistics
+            .requests
+            .recv()
+            .expect("fixture request should arrive")
+            .expect("fixture request should match");
+    }
+    failed_statistics
+        .thread
+        .join()
+        .expect("statistics status fixture should finish");
+}
+
+#[tokio::test]
+async fn accepts_success_payloads_without_api_metadata() {
+    let fixture = start_optional_metadata_fixture();
+    let config = config_for(&fixture.base_url);
+    let mut client = UniFiClient::new(&config).expect("client should build");
+
+    let batch = client
+        .fetch_snapshots(&[AP_ONE.to_owned()])
+        .await
+        .expect("payloads without meta.rc should remain compatible");
+
+    assert_eq!(batch.snapshots.len(), 1);
+    assert_eq!(batch.snapshots[0].ap_name, "Fixture AP");
+    assert!(batch.snapshots[0].clients.is_empty());
     for _ in 0..3 {
         fixture
             .requests
