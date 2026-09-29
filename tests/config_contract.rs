@@ -118,6 +118,20 @@ fn uses_independent_mqtt_and_home_assistant_topic_defaults() {
 }
 
 #[test]
+fn client_history_is_disabled_by_default_and_accepts_a_local_file_path() {
+    let default = Config::from_env(valid_env()).expect("valid environment should parse");
+    assert_eq!(default.client_history_db, None);
+
+    let mut env = valid_env();
+    env.insert("CLIENT_HISTORY_DB", "_tmp/client-history-fixture.db");
+    let configured = Config::from_env(env).expect("history path should parse");
+    assert_eq!(
+        configured.client_history_db,
+        Some(PathBuf::from("_tmp/client-history-fixture.db"))
+    );
+}
+
+#[test]
 fn parses_custom_mqtt_and_home_assistant_topic_settings_independently() {
     let mut env = valid_env();
     env.insert("MQTT_BASE_TOPIC", "site-a/unifi");

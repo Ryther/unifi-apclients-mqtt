@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 
 use thiserror::Error;
 use url::Url;
@@ -19,6 +19,7 @@ pub struct Config {
     pub homeassistant_discovery_enabled: bool,
     pub homeassistant_discovery_prefix: String,
     pub homeassistant_status_topic: String,
+    pub client_history_db: Option<PathBuf>,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -96,6 +97,7 @@ impl Config {
             topic_setting(&env, "HOMEASSISTANT_DISCOVERY_PREFIX", "homeassistant")?;
         let homeassistant_status_topic =
             topic_setting(&env, "HOMEASSISTANT_STATUS_TOPIC", "homeassistant/status")?;
+        let client_history_db = optional(&env, "CLIENT_HISTORY_DB").map(PathBuf::from);
 
         let mqtt_username = optional(&env, "MQTT_USERNAME");
         let mqtt_password = secret_value(&env, "MQTT_PASSWORD", "MQTT_PASSWORD_FILE")?;
@@ -118,6 +120,7 @@ impl Config {
             homeassistant_discovery_enabled,
             homeassistant_discovery_prefix,
             homeassistant_status_topic,
+            client_history_db,
         })
     }
 }

@@ -1,18 +1,28 @@
 use std::collections::HashSet;
 use std::future::Future;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tokio::time::MissedTickBehavior;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 use unifi_apclients_mqtt::{
     config::Config,
+    mapper::ApSnapshot,
     mqtt::{MqttPublisher, log_mqtt_failure, run_event_loop},
+    presence_history::PresenceHistory,
     unifi::{SnapshotBatch, UniFiClient},
 };
 
 trait SnapshotSource {
     async fn fetch_snapshots(&mut self, ap_macs: &[String]) -> Result<SnapshotBatch, String>;
+}
+
+fn unix_now() -> Result<i64, std::io::Error> {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(std::io::Error::other)?
+        .as_secs();
+    i64::try_from(seconds).map_err(std::io::Error::other)
 }
 
 impl SnapshotSource for UniFiClient {
@@ -59,17 +69,28 @@ where
     let event_publisher = publisher.clone();
     let mqtt_task = tokio::spawn(run_event_loop(event_loop, event_publisher));
 
-    info!(
-        ap_count = config.ap_macs.len(),
-        poll_seconds = config.poll_interval.as_secs(),
-        tls_insecure = config.unifi_tls_insecure,
-        "UniFi AP client poller started"
-    );
-
     let mut ticker = tokio::time::interval(config.poll_interval);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
     tokio::pin!(shutdown);
     let mut discovered_aps = HashSet::new();
+    let mut history = if let Some(path) = config.client_history_db.as_deref() {
+        let max_gap_seconds = config
+            .poll_interval
+            .as_secs()
+            .saturating_mul(2)
+            .saturating_add(5)
+            .min(i64::MAX as u64) as i64;
+        Some(PresenceHistory::open(path, unix_now()?, max_gap_seconds)?)
+    } else {
+        None
+    };
+    info!(
+        ap_count = config.ap_macs.len(),
+        poll_seconds = config.poll_interval.as_secs(),
+        tls_insecure = config.unifi_tls_insecure,
+        client_history_enabled = history.is_some(),
+        "UniFi AP client poller started"
+    );
 
     loop {
         tokio::select! {
@@ -81,6 +102,25 @@ where
                 let poll_started = Instant::now();
                 match source.fetch_snapshots(&config.ap_macs).await {
                     Ok(batch) => {
+                        let eligible_snapshots = if let Some(history) = history.as_mut() {
+                            let now = unix_now()?;
+                            let mut eligible = Vec::with_capacity(batch.snapshots.len());
+                            for snapshot in &batch.snapshots {
+                                let clients = history.observe_ap(snapshot, now)?;
+                                eligible.push(ApSnapshot {
+                                    available: true,
+                                    ap_mac: snapshot.ap_mac.clone(),
+                                    ap_name: snapshot.ap_name.clone(),
+                                    clients,
+                                });
+                            }
+                            for ap_mac in &batch.unavailable_aps {
+                                history.mark_unavailable(ap_mac, now)?;
+                            }
+                            Some(eligible)
+                        } else {
+                            None
+                        };
                         let available_ap_count = batch.snapshots.len();
                         let unavailable_ap_count = batch.unavailable_aps.len();
                         let client_count = batch.snapshots.iter()
@@ -111,6 +151,13 @@ where
                             false,
                             "publish_ap_client_snapshots",
                         );
+                        if let Some(eligible) = &eligible_snapshots {
+                            log_mqtt_failure(
+                                publisher.publish_eligible_snapshots(eligible).await.is_err(),
+                                false,
+                                "publish_ap_eligible_client_snapshots",
+                            );
+                        }
                         log_mqtt_failure(
                             publisher.publish_unavailable(&batch.unavailable_aps).await.is_err(),
                             false,
@@ -125,6 +172,12 @@ where
                         );
                     }
                     Err(error) => {
+                        if let Some(history) = history.as_mut() {
+                            let now = unix_now()?;
+                            for ap_mac in &config.ap_macs {
+                                history.mark_unavailable(ap_mac, now)?;
+                            }
+                        }
                         warn!(failure = %error, poll_duration_ms = poll_started.elapsed().as_millis() as u64, "UniFi poll failed; preserving the last retained snapshots");
                         log_mqtt_failure(
                             publisher.publish_unavailable(&config.ap_macs).await.is_err(),
@@ -214,6 +267,7 @@ mod tests {
             homeassistant_discovery_enabled: true,
             homeassistant_discovery_prefix: "homeassistant".to_owned(),
             homeassistant_status_topic: "homeassistant/status".to_owned(),
+            client_history_db: None,
         }
     }
 

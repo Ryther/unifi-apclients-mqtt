@@ -13,6 +13,7 @@ does not log their contents.
 | `UNIFI_PASSWORD` or `UNIFI_PASSWORD_FILE` | Yes | — | Password value or path to the mounted password file. |
 | `UNIFI_AP_MACS` | Yes | — | Comma-separated MAC addresses for the access points to publish. |
 | `UNIFI_POLL_INTERVAL_SECS` | No | `5` | Poll interval in seconds; must be greater than zero. |
+| `CLIENT_HISTORY_DB` | No | Disabled | Path to a writable persistent SQLite database for client eligibility. Enables one additional Eligible clients sensor per AP. |
 | `UNIFI_TLS_INSECURE` | No | `false` | Set `true` only when you explicitly accept an unverified controller certificate. HTTPS encryption remains enabled. |
 | `MQTT_HOST` | Yes | — | Broker hostname or IP reachable from the container. |
 | `MQTT_PORT` | Yes | — | Broker TCP port. |
@@ -36,12 +37,24 @@ sensor state is the associated-client count; attributes include the AP name,
 AP MAC, and client details. Client device identifiers are therefore present in
 the MQTT payloads and should be protected by broker access controls.
 
+When `CLIENT_HISTORY_DB` is set, it publishes another sensor named **Eligible
+clients** on each AP device. Its count and `clients` attribute include currently
+connected clients that have either 24 hours of continuous observed presence or
+five observed hours in the last 48 hours across sessions separated by a valid
+snapshot showing the client absent. Poll failures, missing APs, long poll gaps,
+and restarts break continuous observation but do not count as a confirmed
+absence. The history starts when this feature is enabled; it is not reconstructed
+from old MQTT snapshots. The database includes MAC addresses and observation
+times, so protect the volume and keep it out of version control.
+
 | Purpose | Topic |
 | --- | --- |
 | AP state snapshot | `<MQTT_BASE_TOPIC>/<ap-mac-without-colons>/state` |
+| Eligible clients snapshot | `<MQTT_BASE_TOPIC>/<ap-mac-without-colons>/eligible/state` |
 | AP availability | `<MQTT_BASE_TOPIC>/<ap-mac-without-colons>/availability` |
 | Service availability | `<MQTT_BASE_TOPIC>/status` |
 | Home Assistant discovery | `<HOMEASSISTANT_DISCOVERY_PREFIX>/sensor/unifi_apclients/<id>/config` |
+| Eligible clients discovery | `<HOMEASSISTANT_DISCOVERY_PREFIX>/sensor/unifi_apclients/<id>_eligible/config` |
 
 State and discovery messages are retained. Home Assistant's `online` birth
 message prompts the service to replay discovery and cached snapshots. Setting

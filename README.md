@@ -13,9 +13,10 @@
 [![License](https://img.shields.io/github/license/Ryther/unifi-apclients-mqtt)](LICENSE)
 
 Small Rust service that polls the UniFi Network API and publishes a retained
-client snapshot for configured access points. MQTT Discovery creates one
-Home Assistant sensor per AP; the sensor state is the number of associated
-clients and its attributes include the AP and client details.
+client snapshot for configured access points. MQTT Discovery creates a
+Home Assistant client-count sensor per AP; the sensor state is the number of
+associated clients and its attributes include the AP and client details.
+Persistent history can add an Eligible clients sensor to each AP device.
 
 ## Start here
 
@@ -52,9 +53,11 @@ you set a password, also set its username.
 ## MQTT contract
 
 - State: `unifi/apclients/<ap-mac-without-colons>/state` (retained JSON)
+- Eligible clients: `unifi/apclients/<ap-mac-without-colons>/eligible/state` (when enabled)
 - Availability: `unifi/apclients/<ap-mac-without-colons>/availability`
 - Global service availability: `unifi/apclients/status`
 - Home Assistant discovery: `homeassistant/sensor/unifi_apclients/<id>/config`
+- Eligible clients discovery: `homeassistant/sensor/unifi_apclients/<id>_eligible/config` (when enabled)
 
 These topic roots are configurable through `MQTT_BASE_TOPIC` and
 `HOMEASSISTANT_DISCOVERY_PREFIX`. The service listens for Home Assistant's
@@ -62,8 +65,15 @@ These topic roots are configurable through `MQTT_BASE_TOPIC` and
 and cached snapshots after Home Assistant restarts. Discovery is enabled by
 default and can be disabled with `HOMEASSISTANT_DISCOVERY_ENABLED=false`.
 
-Each sensor reports a client count and exposes `ap_mac`, `ap_name`, and
-`clients` as attributes. A successful empty UniFi response is published as an
+The default sensor reports a client count and exposes `ap_mac`, `ap_name`, and
+`clients` as attributes. Setting `CLIENT_HISTORY_DB` also publishes an
+**Eligible clients** sensor on the same AP device. It lists currently connected
+clients that either stayed continuously observed for 24 hours or accumulated
+five observed hours in the last 48 hours after at least one confirmed absence
+from the AP. The SQLite database persists MAC addresses and observation
+intervals across restarts; mount its directory on durable, writable storage.
+An outage or restart does not count as an observed absence or earn presence
+time. A successful empty UniFi response is published as an
 empty client list. A missing configured AP is marked unavailable independently;
 a failed UniFi/API request marks every configured AP unavailable. Both cases
 leave the last retained snapshots intact. Discovery and cached state are

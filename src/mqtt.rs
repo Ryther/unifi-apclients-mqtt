@@ -19,6 +19,7 @@ pub struct MqttPublisher {
 struct MqttConfig {
     base_topic: String,
     discovery_enabled: bool,
+    eligible_enabled: bool,
     discovery_prefix: String,
     homeassistant_status_topic: String,
 }
@@ -27,6 +28,7 @@ struct MqttConfig {
 struct CachedAp {
     ap_mac: String,
     snapshot: Option<ApSnapshot>,
+    eligible_snapshot: Option<ApSnapshot>,
     available: bool,
 }
 
@@ -47,6 +49,7 @@ impl MqttPublisher {
         let mqtt_config = MqttConfig {
             base_topic: config.mqtt_base_topic.clone(),
             discovery_enabled: config.homeassistant_discovery_enabled,
+            eligible_enabled: config.client_history_db.is_some(),
             discovery_prefix: config.homeassistant_discovery_prefix.clone(),
             homeassistant_status_topic: config.homeassistant_status_topic.clone(),
         };
@@ -71,6 +74,7 @@ impl MqttPublisher {
                                 CachedAp {
                                     ap_mac: mac.clone(),
                                     snapshot: None,
+                                    eligible_snapshot: None,
                                     available: false,
                                 },
                             )
@@ -121,6 +125,24 @@ impl MqttPublisher {
                         .to_string(),
                 )
                 .await?;
+            if self.config.eligible_enabled {
+                self.client
+                    .publish(
+                        eligible_discovery_topic_for(
+                            &self.config.discovery_prefix,
+                            &snapshot.ap_mac,
+                        ),
+                        QoS::AtLeastOnce,
+                        true,
+                        eligible_discovery_config_for(
+                            &self.config.base_topic,
+                            &snapshot.ap_mac,
+                            &snapshot.ap_name,
+                        )
+                        .to_string(),
+                    )
+                    .await?;
+            }
         }
         Ok(())
     }
@@ -132,11 +154,15 @@ impl MqttPublisher {
         {
             let mut cache = self.cache.lock().expect("MQTT snapshot cache poisoned");
             for snapshot in snapshots {
+                let eligible_snapshot = cache
+                    .get(&snapshot.ap_mac.to_ascii_lowercase())
+                    .and_then(|ap| ap.eligible_snapshot.clone());
                 cache.insert(
                     snapshot.ap_mac.to_ascii_lowercase(),
                     CachedAp {
                         ap_mac: snapshot.ap_mac.clone(),
                         snapshot: Some(snapshot.clone()),
+                        eligible_snapshot,
                         available: true,
                     },
                 );
@@ -157,6 +183,36 @@ impl MqttPublisher {
                     QoS::AtLeastOnce,
                     true,
                     serde_json::to_string(snapshot).expect("snapshot serialization is infallible"),
+                )
+                .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn publish_eligible_snapshots(
+        &self,
+        snapshots: &[ApSnapshot],
+    ) -> Result<(), rumqttc::ClientError> {
+        if !self.config.eligible_enabled {
+            return Ok(());
+        }
+        {
+            let mut cache = self.cache.lock().expect("MQTT snapshot cache poisoned");
+            for snapshot in snapshots {
+                if let Some(ap) = cache.get_mut(&snapshot.ap_mac.to_ascii_lowercase()) {
+                    ap.eligible_snapshot = Some(snapshot.clone());
+                    ap.available = true;
+                }
+            }
+        }
+        for snapshot in snapshots {
+            self.client
+                .publish(
+                    eligible_state_topic_for(&self.config.base_topic, &snapshot.ap_mac),
+                    QoS::AtLeastOnce,
+                    true,
+                    serde_json::to_string(snapshot)
+                        .expect("eligible snapshot serialization is infallible"),
                 )
                 .await?;
         }
@@ -202,7 +258,7 @@ impl MqttPublisher {
             .collect::<Vec<_>>();
         let snapshots = cached
             .iter()
-            .filter_map(|ap| ap.snapshot.clone())
+            .filter_map(|ap| ap.snapshot.clone().or_else(|| ap.eligible_snapshot.clone()))
             .collect::<Vec<_>>();
         let available_ap_count = cached.iter().filter(|ap| ap.available).count();
         let client_count = cached
@@ -215,38 +271,40 @@ impl MqttPublisher {
             self.publish_discovery(&snapshots).await?;
         }
         for ap in &cached {
-            if let Some(snapshot) = &ap.snapshot {
-                if ap.available {
+            if ap.available {
+                self.client
+                    .publish(
+                        availability_topic_for(&self.config.base_topic, &ap.ap_mac),
+                        QoS::AtLeastOnce,
+                        true,
+                        "online",
+                    )
+                    .await?;
+                if let Some(snapshot) = &ap.snapshot {
                     self.client
                         .publish(
-                            availability_topic_for(&self.config.base_topic, &snapshot.ap_mac),
-                            QoS::AtLeastOnce,
-                            true,
-                            "online",
-                        )
-                        .await?;
-                    self.client
-                        .publish(
-                            state_topic_for(&self.config.base_topic, &snapshot.ap_mac),
+                            state_topic_for(&self.config.base_topic, &ap.ap_mac),
                             QoS::AtLeastOnce,
                             true,
                             serde_json::to_string(snapshot)
                                 .expect("snapshot serialization is infallible"),
                         )
                         .await?;
-                } else {
+                }
+                if self.config.eligible_enabled
+                    && let Some(eligible) = &ap.eligible_snapshot
+                {
                     self.client
                         .publish(
-                            availability_topic_for(&self.config.base_topic, &snapshot.ap_mac),
+                            eligible_state_topic_for(&self.config.base_topic, &ap.ap_mac),
                             QoS::AtLeastOnce,
                             true,
-                            "offline",
+                            serde_json::to_string(eligible)
+                                .expect("eligible snapshot serialization is infallible"),
                         )
                         .await?;
                 }
             } else {
-                // The AP has never returned a valid snapshot, but still needs
-                // an explicit offline marker after a broker state reset.
                 self.client
                     .publish(
                         availability_topic_for(&self.config.base_topic, &ap.ap_mac),
@@ -366,6 +424,46 @@ pub fn discovery_topic_for(discovery_prefix: &str, ap_mac: &str) -> String {
         "{discovery_prefix}/sensor/unifi_apclients/{}/config",
         topic_id(ap_mac)
     )
+}
+
+pub fn eligible_state_topic_for(base_topic: &str, ap_mac: &str) -> String {
+    format!("{}/{}/eligible/state", base_topic, topic_id(ap_mac))
+}
+
+pub fn eligible_discovery_topic_for(discovery_prefix: &str, ap_mac: &str) -> String {
+    format!(
+        "{discovery_prefix}/sensor/unifi_apclients/{}_eligible/config",
+        topic_id(ap_mac)
+    )
+}
+
+pub fn eligible_discovery_config_for(base_topic: &str, ap_mac: &str, ap_name: &str) -> Value {
+    let id = topic_id(ap_mac);
+    json!({
+        "name": "Eligible clients",
+        "icon": "mdi:account-check",
+        "unique_id": format!("unifi_apclients_{id}_eligible"),
+        "state_topic": eligible_state_topic_for(base_topic, ap_mac),
+        "json_attributes_topic": eligible_state_topic_for(base_topic, ap_mac),
+        "value_template": "{{ value_json.clients | count }}",
+        "availability": [
+            {
+                "topic": service_availability_topic_for(base_topic),
+                "payload_available": "online",
+                "payload_not_available": "offline"
+            },
+            {
+                "topic": availability_topic_for(base_topic, ap_mac),
+                "payload_available": "online",
+                "payload_not_available": "offline"
+            }
+        ],
+        "availability_mode": "all",
+        "device": {
+            "name": ap_name,
+            "identifiers": [ap_mac]
+        }
+    })
 }
 
 pub fn discovery_config(ap_mac: &str, ap_name: &str) -> Value {
