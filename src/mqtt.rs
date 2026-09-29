@@ -204,6 +204,13 @@ impl MqttPublisher {
             .iter()
             .filter_map(|ap| ap.snapshot.clone())
             .collect::<Vec<_>>();
+        let available_ap_count = cached.iter().filter(|ap| ap.available).count();
+        let client_count = cached
+            .iter()
+            .filter(|ap| ap.available)
+            .filter_map(|ap| ap.snapshot.as_ref())
+            .map(|snapshot| snapshot.clients.len())
+            .sum::<usize>();
         if self.config.discovery_enabled {
             self.publish_discovery(&snapshots).await?;
         }
@@ -250,6 +257,13 @@ impl MqttPublisher {
                     .await?;
             }
         }
+        tracing::info!(
+            ap_count = cached.len(),
+            available_ap_count,
+            client_count,
+            discovery_enabled = self.config.discovery_enabled,
+            "queued cached MQTT state replay"
+        );
         Ok(())
     }
 }
@@ -257,23 +271,28 @@ impl MqttPublisher {
 pub async fn run_event_loop(mut event_loop: EventLoop, publisher: MqttPublisher) {
     loop {
         match event_loop.poll().await {
-            Ok(Event::Incoming(rumqttc::Packet::ConnAck(_))) => {
+            Ok(Event::Incoming(rumqttc::Packet::ConnAck(ack))) => {
+                tracing::info!(
+                    session_present = ack.session_present,
+                    "connected to MQTT broker"
+                );
                 if publisher.config.discovery_enabled
-                    && let Err(error) = publisher
+                    && publisher
                         .client
                         .subscribe(
                             publisher.config.homeassistant_status_topic.as_str(),
                             QoS::AtLeastOnce,
                         )
                         .await
+                        .is_err()
                 {
-                    tracing::warn!(%error, "could not subscribe to Home Assistant status");
+                    tracing::warn!("could not subscribe to Home Assistant status");
                 }
-                if let Err(error) = publisher.publish_online().await {
-                    tracing::warn!(%error, "could not publish MQTT online status");
+                if publisher.publish_online().await.is_err() {
+                    tracing::warn!("could not publish MQTT online status");
                 }
-                if let Err(error) = publisher.replay_cached_state().await {
-                    tracing::warn!(%error, "could not replay cached MQTT discovery and state");
+                if publisher.replay_cached_state().await.is_err() {
+                    tracing::warn!("could not replay cached MQTT discovery and state");
                 }
             }
             Ok(Event::Incoming(rumqttc::Packet::Publish(message)))
@@ -281,13 +300,14 @@ pub async fn run_event_loop(mut event_loop: EventLoop, publisher: MqttPublisher)
                     && message.topic == publisher.config.homeassistant_status_topic
                     && message.payload.as_ref() == b"online" =>
             {
-                if let Err(error) = publisher.replay_cached_state().await {
-                    tracing::warn!(%error, "could not republish discovery after Home Assistant startup");
+                tracing::debug!("Home Assistant reported online; replaying discovery and state");
+                if publisher.replay_cached_state().await.is_err() {
+                    tracing::warn!("could not republish discovery after Home Assistant startup");
                 }
             }
             Ok(_) => {}
-            Err(error) => {
-                tracing::warn!(%error, "MQTT connection error");
+            Err(_) => {
+                tracing::warn!("MQTT connection error");
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
         }

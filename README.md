@@ -27,6 +27,9 @@ Assistant discovery settings. If the service does not appear or publish data,
 start with
 [troubleshooting](https://ryther.github.io/unifi-apclients-mqtt/troubleshooting/).
 The guides are also available in the [`docs/` directory](docs/index.md).
+AI assistants can use the self-contained
+[UniFi AP Clients MQTT guide skill](.agents/skills/unifi-apclients-mqtt-guide/SKILL.md)
+for installation, configuration, and troubleshooting instructions.
 
 ## Configuration
 
