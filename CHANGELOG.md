@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.5.0...unifi-apclients-mqtt-v0.6.0) (2026-09-29)
+
+
+### Features
+
+* add structured operational logging and user guide ([01815c6](https://github.com/Ryther/unifi-apclients-mqtt/commit/01815c62cc1fc2e9c65ea79f3c29de397e2d2098))
+
 ## [0.5.0](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.4.1...unifi-apclients-mqtt-v0.5.0) (2026-09-29)
 
 
