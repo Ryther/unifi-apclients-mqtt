@@ -54,6 +54,9 @@ services:
     environment:
       UNIFI_PASSWORD_FILE: /run/secrets/unifi_password
       MQTT_PASSWORD_FILE: /run/secrets/mqtt_password
+      CLIENT_HISTORY_DB: /data/client-history.db
+    volumes:
+      - ./data:/data
     secrets:
       - unifi_password
       - mqtt_password
@@ -76,6 +79,22 @@ creating the files with your preferred secret manager or editor:
 sudo chown 10001:10001 secrets/unifi_password secrets/mqtt_password
 sudo chmod 0400 secrets/unifi_password secrets/mqtt_password
 ```
+
+The Eligible clients sensor also needs a persistent writable directory. Create
+it before starting the example Compose service:
+
+```sh
+mkdir -p data
+sudo chown 10001:10001 data
+sudo chmod 0700 data
+```
+
+The example mounts `./data` at `/data` and sets `CLIENT_HISTORY_DB` to
+`/data/client-history.db`. The SQLite database contains client MAC addresses and
+observation times. The service creates it with owner-only permissions and
+refuses to start if it cannot read or write the history. Keep `data/` out of
+Git and back it up if preserving the accumulated presence history matters.
+Stop the service before copying the database file for a backup.
 
 The repository ignores the `secrets/` directory. Do not commit real secret
 files. A password file may end in a newline; the service removes the final

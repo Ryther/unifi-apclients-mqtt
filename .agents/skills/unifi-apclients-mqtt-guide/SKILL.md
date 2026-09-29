@@ -7,8 +7,9 @@ description: Use when helping someone install, configure, update, or troubleshoo
 
 This service polls read-only UniFi Network statistics and publishes retained
 client snapshots for configured access points to MQTT. Home Assistant MQTT
-Discovery creates one sensor per AP. The sensor state is its associated-client
-count; attributes contain AP and client details. These are aggregate AP
+Discovery creates a client-count sensor per AP. The sensor state is its associated-client
+count; attributes contain AP and client details. Persistent history adds an
+Eligible clients sensor per AP when `CLIENT_HISTORY_DB` is configured. These are aggregate AP
 snapshots, not per-client `device_tracker` entities. The service does not
 control UniFi devices, change Home Assistant configuration, or close a garage.
 
@@ -36,6 +37,9 @@ services:
     environment:
       UNIFI_PASSWORD_FILE: /run/secrets/unifi_password
       MQTT_PASSWORD_FILE: /run/secrets/mqtt_password
+      CLIENT_HISTORY_DB: /data/client-history.db
+    volumes:
+      - ./data:/data
     secrets:
       - unifi_password
       - mqtt_password
@@ -59,6 +63,9 @@ both. For reproducible upgrades, use a published version tag instead of
 `latest`. Compose secrets are files on the host; protect them and make them
 readable by UID/GID 10001. Start with `docker compose up -d`, then inspect with
 `docker compose logs -f unifi-apclients-mqtt`.
+Create `data/` before starting and make it writable by UID/GID 10001. The
+history database stores client MAC addresses and observation times, so protect
+the directory and keep it out of version control.
 
 ## Configure
 
@@ -72,6 +79,7 @@ control:
 | `UNIFI_PASSWORD` or `UNIFI_PASSWORD_FILE` | Required password source. |
 | `UNIFI_AP_MACS` | Comma-separated MAC addresses of the APs to report. |
 | `UNIFI_POLL_INTERVAL_SECS` | Optional positive interval; defaults to 5 seconds. |
+| `CLIENT_HISTORY_DB` | Optional persistent SQLite path; enables the Eligible clients sensor. In Compose mount `/data` and use `/data/client-history.db`. |
 | `UNIFI_TLS_INSECURE` | Defaults to `false`; `true` skips certificate verification while keeping HTTPS encryption. |
 | `MQTT_HOST`, `MQTT_PORT` | Required broker address and TCP port, reachable from the container. |
 | `MQTT_USERNAME`, `MQTT_PASSWORD` or `_FILE` | Optional broker authentication; a password requires a username. |
@@ -80,13 +88,21 @@ control:
 | `HOMEASSISTANT_DISCOVERY_PREFIX` | Defaults to `homeassistant`; must match HA's MQTT integration. |
 | `HOMEASSISTANT_STATUS_TOPIC` | Defaults to `homeassistant/status`; HA publishes its `online` birth message here. |
 
-The service publishes one discovery sensor per configured AP. Its state topic
+The default discovery sensor for each configured AP uses the state topic
 is `<MQTT_BASE_TOPIC>/<ap-mac-without-colons>/state`; availability is in the
 matching `/availability` topic. Service availability is
 `<MQTT_BASE_TOPIC>/status`. Messages are retained. Each AP appears in Home
 Assistant as an AP-level device/sensor with the connected client list in its
 snapshot attributes. Do not expect individual client trackers or client
 entities.
+
+When `CLIENT_HISTORY_DB` is set, a second sensor on the same AP device uses
+`<MQTT_BASE_TOPIC>/<ap-id>/eligible/state`. It contains currently connected
+clients eligible for manual whitelist approval: 24 hours of continuous
+observation, or five hours across the last 48 hours with a valid snapshot
+confirming absence between sessions. Service restarts and API failures do not
+count as confirmed absence or add presence time. The database must remain writable
+and persistent across restarts.
 
 ## Verify operation
 

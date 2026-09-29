@@ -16,11 +16,16 @@ All UniFi operations are read-only apart from the login request.
    `/api/s/default/stat/device` and `/api/s/default/stat/sta`.
 3. `mapper.rs` associates clients through `ap_mac`, sorts/deduplicates them,
    and creates one snapshot per available configured AP.
-4. `mqtt.rs` publishes retained JSON state, per-AP availability, global
-   availability, and one discovery sensor per AP. It subscribes to Home
+4. When `CLIENT_HISTORY_DB` is set, `presence_history.rs` stores observed
+   client intervals by AP and MAC. A valid absent snapshot records a confirmed
+   departure. Poll failures, missing APs, long poll gaps, and restarts break
+   continuous observation without earning time or confirming a departure.
+5. `mqtt.rs` publishes retained JSON state, per-AP availability, global
+   availability, and the AP client sensor. With history enabled it also
+   publishes an Eligible clients sensor on the same AP device. It subscribes to Home
    Assistant's status topic and replays discovery and cached state after a
    broker reconnect or Home Assistant's `online` birth message.
-5. `main.rs` drives polling and reports offline availability on API errors or
+6. `main.rs` drives polling and reports offline availability on API errors or
    clean shutdown without replacing the last good snapshot.
 
 ## Failure behavior
@@ -40,6 +45,16 @@ where discovery config is published. Home Assistant creates one sensor per AP
 whose state is the client count; the JSON payload also supplies AP and client
 attributes. Discovery uses both global service and per-AP availability with
 `availability_mode: all`.
+
+With history enabled, each AP has an additional Eligible clients sensor at
+`<MQTT_BASE_TOPIC>/<ap-id>/eligible/state`. Its retained payload has the same
+snapshot shape but contains only currently connected clients that satisfy the
+presence policy. A continuous observation needs 24 hours; the alternative
+requires five hours within a rolling 48-hour window and at least one confirmed
+absence between observed sessions. SQLite commits each AP observation as a
+transaction and stores MAC addresses and timestamps, not names or IP addresses.
+The database must be stored on persistent writable storage. The original
+sensor and topics remain unchanged.
 
 Payload examples and exact topics are documented in the
 [repository README](https://github.com/Ryther/unifi-apclients-mqtt#readme).

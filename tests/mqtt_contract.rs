@@ -12,8 +12,9 @@ use std::time::Duration;
 use unifi_apclients_mqtt::config::Config;
 use unifi_apclients_mqtt::mqtt::{
     availability_topic, availability_topic_for, discovery_config, discovery_config_for,
-    discovery_topic, discovery_topic_for, service_availability_topic_for, state_topic,
-    state_topic_for, topic_id,
+    discovery_topic, discovery_topic_for, eligible_discovery_config_for,
+    eligible_discovery_topic_for, eligible_state_topic_for, service_availability_topic_for,
+    state_topic, state_topic_for, topic_id,
 };
 
 const AP_MAC: &str = "11:22:33:44:55:66";
@@ -31,6 +32,7 @@ fn configured_topics() -> Config {
         mqtt_port: 1883,
         mqtt_username: None,
         mqtt_password: None,
+        client_history_db: None,
         mqtt_base_topic: "site-a/unifi".to_owned(),
         homeassistant_discovery_enabled: true,
         homeassistant_discovery_prefix: "ha2".to_owned(),
@@ -122,4 +124,41 @@ fn discovery_config_describes_the_ap_client_count_and_availability() {
             }
         })
     );
+}
+
+#[test]
+fn eligible_topics_use_the_ap_id_and_configured_prefixes() {
+    let config = configured_topics();
+
+    assert_eq!(
+        eligible_state_topic_for(&config.mqtt_base_topic, AP_MAC),
+        "site-a/unifi/112233445566/eligible/state"
+    );
+    assert_eq!(
+        eligible_discovery_topic_for(&config.homeassistant_discovery_prefix, AP_MAC),
+        "ha2/sensor/unifi_apclients/112233445566_eligible/config"
+    );
+}
+
+#[test]
+fn eligible_discovery_counts_clients_on_the_existing_ap_device() {
+    let config = configured_topics();
+    let original = discovery_config_for(&config.mqtt_base_topic, AP_MAC, "Living Room AP");
+    let eligible = eligible_discovery_config_for(&config.mqtt_base_topic, AP_MAC, "Living Room AP");
+
+    assert_eq!(
+        eligible["unique_id"],
+        "unifi_apclients_112233445566_eligible"
+    );
+    assert_eq!(
+        eligible["state_topic"],
+        "site-a/unifi/112233445566/eligible/state"
+    );
+    assert_eq!(
+        eligible["value_template"],
+        "{{ value_json.clients | count }}"
+    );
+    assert_eq!(eligible["device"], original["device"]);
+    assert_eq!(eligible["availability"], original["availability"]);
+    assert_eq!(eligible["availability_mode"], original["availability_mode"]);
 }

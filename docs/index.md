@@ -2,7 +2,8 @@
 
 This service reads client and device statistics from UniFi Network and publishes
 retained per-access-point client snapshots over MQTT. Home Assistant discovers
-one sensor per configured access point.
+one client-count sensor per configured access point. An optional persistent
+history adds an Eligible clients sensor to each AP device.
 
 The service only reads UniFi statistics after login. Client identifiers and AP
 details are published to your MQTT broker; choose a broker and UniFi account

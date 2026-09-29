@@ -5,6 +5,7 @@
 /.env.*
 !/.env.example
 /secrets/
+/data/
 /_test/
 /_tmp/
 *.log
