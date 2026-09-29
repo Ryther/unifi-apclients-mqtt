@@ -42,6 +42,12 @@ expected analysis report is missing or unsuccessful. Coverage runs the
 contract suite against a disposable Mosquitto broker and enforces at least 90%
 total line coverage.
 
+The Docker image check scans the exact candidate image and `Cargo.lock` with
+Trivy. Fixable high and critical findings fail the check; all high and
+critical findings are retained in SARIF reports. Trusted `main` pushes upload
+those reports to GitHub Code Scanning. A weekly workflow also scans the
+published `latest` image and the current lockfile.
+
 ## Pull requests
 
 Use a Conventional Commit title and commits (`feat:`, `fix:`, `docs:`, `ci:`,

@@ -54,6 +54,17 @@ across container upgrades. The poll interval defaults to five seconds. MQTT
 credentials are optional; if
 you set a password, also set its username.
 
+## Security scanning
+
+CI scans the exact candidate Docker image and `Cargo.lock` with Trivy.
+Fixable high and critical vulnerabilities fail the Docker image check before
+a release can be published. The reports are uploaded to GitHub Code Scanning
+from trusted `main` pushes. A weekly workflow rescans the published `latest`
+image and the current lockfile to detect newly disclosed vulnerabilities.
+The image scan covers the final operating system packages; the separate
+lockfile scan covers Rust dependencies that the stripped runtime image does
+not expose. Unfixed high and critical findings remain visible in Code Scanning.
+
 ## MQTT contract
 
 - State: `unifi/apclients/<ap-mac-without-colons>/state` (retained JSON)
