@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.9.0...unifi-apclients-mqtt-v1.0.0) (2026-09-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* The runtime image has no shell or OS certificate store, and is built for x86-64 only. Mounted private CA files are not automatically trusted.
+
+### Features
+
+* ship a static scratch runtime image ([#37](https://github.com/Ryther/unifi-apclients-mqtt/issues/37)) ([5346329](https://github.com/Ryther/unifi-apclients-mqtt/commit/5346329b80861a8ae9297e8b09f53611d0b047e7))
+
 ## [0.9.0](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.8.0...unifi-apclients-mqtt-v0.9.0) (2026-09-29)
 
 
