@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 
 use thiserror::Error;
 use url::Url;
@@ -15,6 +15,11 @@ pub struct Config {
     pub mqtt_port: u16,
     pub mqtt_username: Option<String>,
     pub mqtt_password: Option<String>,
+    pub mqtt_base_topic: String,
+    pub homeassistant_discovery_enabled: bool,
+    pub homeassistant_discovery_prefix: String,
+    pub homeassistant_status_topic: String,
+    pub client_history_db: Option<PathBuf>,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -79,6 +84,21 @@ impl Config {
 
         let mqtt_host = required(&env, "MQTT_HOST")?;
 
+        let mqtt_base_topic = topic_setting(&env, "MQTT_BASE_TOPIC", "unifi/apclients")?;
+        let homeassistant_discovery_enabled = env
+            .get("HOMEASSISTANT_DISCOVERY_ENABLED")
+            .map(|value| match value.as_str() {
+                "true" => Ok(true),
+                "false" => Ok(false),
+                _ => Err(ConfigError::Invalid("HOMEASSISTANT_DISCOVERY_ENABLED")),
+            })
+            .unwrap_or(Ok(true))?;
+        let homeassistant_discovery_prefix =
+            topic_setting(&env, "HOMEASSISTANT_DISCOVERY_PREFIX", "homeassistant")?;
+        let homeassistant_status_topic =
+            topic_setting(&env, "HOMEASSISTANT_STATUS_TOPIC", "homeassistant/status")?;
+        let client_history_db = optional(&env, "CLIENT_HISTORY_DB").map(PathBuf::from);
+
         let mqtt_username = optional(&env, "MQTT_USERNAME");
         let mqtt_password = secret_value(&env, "MQTT_PASSWORD", "MQTT_PASSWORD_FILE")?;
         if mqtt_password.is_some() && mqtt_username.is_none() {
@@ -96,6 +116,11 @@ impl Config {
             mqtt_port,
             mqtt_username,
             mqtt_password,
+            mqtt_base_topic,
+            homeassistant_discovery_enabled,
+            homeassistant_discovery_prefix,
+            homeassistant_status_topic,
+            client_history_db,
         })
     }
 }
@@ -140,6 +165,23 @@ fn optional(env: &HashMap<String, String>, name: &str) -> Option<String> {
     env.get(name)
         .filter(|value| !value.trim().is_empty())
         .cloned()
+}
+
+fn topic_setting(
+    env: &HashMap<String, String>,
+    name: &'static str,
+    default: &'static str,
+) -> Result<String, ConfigError> {
+    let value = env
+        .get(name)
+        .map(String::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(default)
+        .trim();
+    if value.is_empty() || value.contains(['+', '#', '\0']) {
+        return Err(ConfigError::Invalid(name));
+    }
+    Ok(value.to_owned())
 }
 
 fn normalize_mac(value: &str) -> Result<String, ConfigError> {

@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.7.0](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.6.0...unifi-apclients-mqtt-v0.7.0) (2026-09-29)
+
+
+### Features
+
+* add eligible clients with SQLite presence history ([#28](https://github.com/Ryther/unifi-apclients-mqtt/issues/28)) ([2618a9e](https://github.com/Ryther/unifi-apclients-mqtt/commit/2618a9e092f34cff3b2a3ddfea44412a3b28bbbf))
+
+## [0.6.0](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.5.0...unifi-apclients-mqtt-v0.6.0) (2026-09-29)
+
+
+### Features
+
+* add structured operational logging and user guide ([01815c6](https://github.com/Ryther/unifi-apclients-mqtt/commit/01815c62cc1fc2e9c65ea79f3c29de397e2d2098))
+
+## [0.5.0](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.4.1...unifi-apclients-mqtt-v0.5.0) (2026-09-29)
+
+
+### Features
+
+* **mqtt:** configure discovery and topic roots ([#23](https://github.com/Ryther/unifi-apclients-mqtt/issues/23)) ([0203051](https://github.com/Ryther/unifi-apclients-mqtt/commit/0203051aaf25097f630a7563e0da8a204d588671))
+
 ## [0.4.1](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.4.0...unifi-apclients-mqtt-v0.4.1) (2026-09-28)
 
 

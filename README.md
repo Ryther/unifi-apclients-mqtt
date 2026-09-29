@@ -13,19 +13,25 @@
 [![License](https://img.shields.io/github/license/Ryther/unifi-apclients-mqtt)](LICENSE)
 
 Small Rust service that polls the UniFi Network API and publishes a retained
-client snapshot for configured access points. MQTT Discovery creates one
-Home Assistant sensor per AP; the sensor state is the number of associated
-clients and its attributes include the AP and client details.
+client snapshot for configured access points. MQTT Discovery creates a
+Home Assistant client-count sensor per AP; the sensor state is the number of
+associated clients and its attributes include the AP and client details.
+The container image enables history and an Eligible clients sensor on each AP
+device. Mount `/data` on writable storage to preserve history across upgrades.
 
 ## Start here
 
 For a new installation, follow the
 [installation guide](https://ryther.github.io/unifi-apclients-mqtt/installation/).
 The [configuration reference](https://ryther.github.io/unifi-apclients-mqtt/configuration/)
-explains UniFi credentials, AP selection, MQTT topics, and Home Assistant
-discovery. If the service does not appear or publish data, start with
+explains UniFi credentials, AP selection, the shared MQTT base topic, and Home
+Assistant discovery settings. If the service does not appear or publish data,
+start with
 [troubleshooting](https://ryther.github.io/unifi-apclients-mqtt/troubleshooting/).
 The guides are also available in the [`docs/` directory](docs/index.md).
+AI assistants can use the self-contained
+[UniFi AP Clients MQTT guide skill](.agents/skills/unifi-apclients-mqtt-guide/SKILL.md)
+for installation, configuration, and troubleshooting instructions.
 
 ## Configuration
 
@@ -42,18 +48,36 @@ self-signed controller certificate. Requests still use HTTPS encryption, but
 the client will not authenticate the controller certificate. Keep this option
 on the trusted local network and do not expose the service to untrusted hosts.
 
-The poll interval defaults to five seconds. MQTT credentials are optional; if
+The image stores client eligibility history at `/data/client-history.db` by
+default. Both Compose examples mount a named volume at `/data`; keep that volume
+across container upgrades. The poll interval defaults to five seconds. MQTT
+credentials are optional; if
 you set a password, also set its username.
 
 ## MQTT contract
 
 - State: `unifi/apclients/<ap-mac-without-colons>/state` (retained JSON)
+- Eligible clients: `unifi/apclients/<ap-mac-without-colons>/eligible/state` (when enabled)
 - Availability: `unifi/apclients/<ap-mac-without-colons>/availability`
 - Global service availability: `unifi/apclients/status`
 - Home Assistant discovery: `homeassistant/sensor/unifi_apclients/<id>/config`
+- Eligible clients discovery: `homeassistant/sensor/unifi_apclients/<id>_eligible/config` (when enabled)
 
-Each sensor reports a client count and exposes `ap_mac`, `ap_name`, and
-`clients` as attributes. A successful empty UniFi response is published as an
+These topic roots are configurable through `MQTT_BASE_TOPIC` and
+`HOMEASSISTANT_DISCOVERY_PREFIX`. The service listens for Home Assistant's
+`online` birth message on `HOMEASSISTANT_STATUS_TOPIC` and republishes discovery
+and cached snapshots after Home Assistant restarts. Discovery is enabled by
+default and can be disabled with `HOMEASSISTANT_DISCOVERY_ENABLED=false`.
+
+The default sensor reports a client count and exposes `ap_mac`, `ap_name`, and
+`clients` as attributes. With `CLIENT_HISTORY_DB` configured, the service also publishes an
+**Eligible clients** sensor on the same AP device. It lists currently connected
+clients that either stayed continuously observed for 24 hours or accumulated
+five observed hours in the last 48 hours after at least one confirmed absence
+from the AP. The SQLite database persists MAC addresses and observation
+intervals across restarts; mount its directory on durable, writable storage.
+An outage or restart does not count as an observed absence or earn presence
+time. A successful empty UniFi response is published as an
 empty client list. A missing configured AP is marked unavailable independently;
 a failed UniFi/API request marks every configured AP unavailable. Both cases
 leave the last retained snapshots intact. Discovery and cached state are
