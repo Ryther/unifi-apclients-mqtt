@@ -30,9 +30,11 @@ commands.
   same rule applies to the MQTT password pair.
 - If using MQTT authentication, provide both `MQTT_USERNAME` and a non-empty
   `MQTT_PASSWORD` or `MQTT_PASSWORD_FILE`.
-- If `CLIENT_HISTORY_DB` is set, confirm its parent directory is mounted on
-  durable storage and writable by UID/GID `10001`. A corrupt or unwritable
-  history database prevents startup or stops the service, so no client can become
+- The published image sets `CLIENT_HISTORY_DB=/data/client-history.db` by
+  default. Confirm `/data` is mounted on durable storage and writable by
+  UID/GID `10001`. Remove an empty `CLIENT_HISTORY_DB=` entry from `.env`,
+  because it overrides the image default. A corrupt or unwritable history
+  database prevents startup or stops the service, so no client can become
   eligible from incomplete history.
 
 ## UniFi shows authentication or connection errors
@@ -60,7 +62,8 @@ commands.
   `<HOMEASSISTANT_DISCOVERY_PREFIX>/sensor/unifi_apclients/<id>/config`, then
   inspect the matching AP state and availability topics from the
   [configuration reference](configuration.md#home-assistant-mqtt-entities).
-- The Eligible clients sensor appears only when `CLIENT_HISTORY_DB` is set.
+- The Eligible clients sensor appears when `CLIENT_HISTORY_DB` is configured;
+  the published image configures it by default.
   Check its separate retained discovery and state topics in the configuration
   reference. Its count can stay at zero until a client meets the presence rule.
 

@@ -16,7 +16,8 @@ All UniFi operations are read-only apart from the login request.
    `/api/s/default/stat/device` and `/api/s/default/stat/sta`.
 3. `mapper.rs` associates clients through `ap_mac`, sorts/deduplicates them,
    and creates one snapshot per available configured AP.
-4. When `CLIENT_HISTORY_DB` is set, `presence_history.rs` stores observed
+4. When `CLIENT_HISTORY_DB` is configured (by default in the container image),
+   `presence_history.rs` stores observed
    client intervals by AP and MAC. A valid absent snapshot records a confirmed
    departure. Poll failures, missing APs, long poll gaps, and restarts break
    continuous observation without earning time or confirming a departure.
