@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.4.1...unifi-apclients-mqtt-v0.5.0) (2026-09-29)
+
+
+### Features
+
+* **mqtt:** configure discovery and topic roots ([#23](https://github.com/Ryther/unifi-apclients-mqtt/issues/23)) ([0203051](https://github.com/Ryther/unifi-apclients-mqtt/commit/0203051aaf25097f630a7563e0da8a204d588671))
+
 ## [0.4.1](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.4.0...unifi-apclients-mqtt-v0.4.1) (2026-09-28)
 
 

@@ -1,6 +1,6 @@
 [package]
 name = "unifi-apclients-mqtt"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.90"
 description = "Publish UniFi access point client snapshots to MQTT for Home Assistant"
