@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.0](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.8.0...unifi-apclients-mqtt-v0.9.0) (2026-09-29)
+
+
+### Features
+
+* scan images and Rust dependencies for vulnerabilities ([#33](https://github.com/Ryther/unifi-apclients-mqtt/issues/33)) ([5ccf18e](https://github.com/Ryther/unifi-apclients-mqtt/commit/5ccf18eb567efecd26edb756ec68f8cac2ac9064))
+
+
+### Bug Fixes
+
+* pass artifact read permission to release validation ([#34](https://github.com/Ryther/unifi-apclients-mqtt/issues/34)) ([bba7821](https://github.com/Ryther/unifi-apclients-mqtt/commit/bba78217749bbe1810e010f14a21e5c0d49f1619))
+
 ## [0.8.0](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.7.0...unifi-apclients-mqtt-v0.8.0) (2026-09-29)
 
 
