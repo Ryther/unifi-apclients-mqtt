@@ -39,9 +39,13 @@ release settings before the first image publication.
 
 The release workflow creates a draft release. It validates the exact commit
 recorded as the draft's target, runs formatting, Clippy, tests against a
-disposable Mosquitto broker, and builds the Docker image before publishing to
-GHCR. Only after the image push succeeds does the workflow publish the GitHub
-release and create its tag.
+disposable Mosquitto broker, builds the Docker image, and scans that exact
+candidate and `Cargo.lock` with Trivy before publishing to GHCR. Fixable high
+and critical findings fail validation. High and critical findings, including
+those without fixes, are uploaded to GitHub Code Scanning from trusted `main`
+pushes. A weekly workflow rescans the published `latest` image and current
+lockfile. Only after the image push succeeds does the workflow publish the
+GitHub release and create its tag.
 
 If validation or image publication fails, the release remains a draft. Use the
 workflow's manual `release_tag` input (for example,

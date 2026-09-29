@@ -107,6 +107,7 @@ jobs:
     if: needs.prepare.outputs.release_created == 'true'
     permissions:
       contents: read
+      security-events: write
     uses: ./.github/workflows/ci.yaml
     with:
       ref: ${{ needs.verify-draft.outputs.sha }}
