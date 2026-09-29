@@ -1,13 +1,15 @@
 use std::collections::HashSet;
 use std::future::Future;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tokio::time::MissedTickBehavior;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 use unifi_apclients_mqtt::{
     config::Config,
-    mqtt::{MqttPublisher, run_event_loop},
+    mapper::ApSnapshot,
+    mqtt::{MqttPublisher, log_mqtt_failure, run_event_loop},
+    presence_history::PresenceHistory,
     unifi::{SnapshotBatch, UniFiClient},
 };
 
@@ -15,17 +17,26 @@ trait SnapshotSource {
     async fn fetch_snapshots(&mut self, ap_macs: &[String]) -> Result<SnapshotBatch, String>;
 }
 
+fn unix_now() -> Result<i64, std::io::Error> {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(std::io::Error::other)?
+        .as_secs();
+    i64::try_from(seconds).map_err(std::io::Error::other)
+}
+
 impl SnapshotSource for UniFiClient {
     async fn fetch_snapshots(&mut self, ap_macs: &[String]) -> Result<SnapshotBatch, String> {
         UniFiClient::fetch_snapshots(self, ap_macs)
             .await
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.safe_summary())
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing_subscriber::fmt()
+        .json()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
@@ -58,17 +69,28 @@ where
     let event_publisher = publisher.clone();
     let mqtt_task = tokio::spawn(run_event_loop(event_loop, event_publisher));
 
-    info!(
-        ap_count = config.ap_macs.len(),
-        poll_seconds = config.poll_interval.as_secs(),
-        tls_insecure = config.unifi_tls_insecure,
-        "UniFi AP client poller started"
-    );
-
     let mut ticker = tokio::time::interval(config.poll_interval);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
     tokio::pin!(shutdown);
     let mut discovered_aps = HashSet::new();
+    let mut history = if let Some(path) = config.client_history_db.as_deref() {
+        let max_gap_seconds = config
+            .poll_interval
+            .as_secs()
+            .saturating_mul(2)
+            .saturating_add(5)
+            .min(i64::MAX as u64) as i64;
+        Some(PresenceHistory::open(path, unix_now()?, max_gap_seconds)?)
+    } else {
+        None
+    };
+    info!(
+        ap_count = config.ap_macs.len(),
+        poll_seconds = config.poll_interval.as_secs(),
+        tls_insecure = config.unifi_tls_insecure,
+        client_history_enabled = history.is_some(),
+        "UniFi AP client poller started"
+    );
 
     loop {
         tokio::select! {
@@ -77,8 +99,33 @@ where
                 break;
             }
             _ = ticker.tick() => {
+                let poll_started = Instant::now();
                 match source.fetch_snapshots(&config.ap_macs).await {
                     Ok(batch) => {
+                        let eligible_snapshots = if let Some(history) = history.as_mut() {
+                            let now = unix_now()?;
+                            let mut eligible = Vec::with_capacity(batch.snapshots.len());
+                            for snapshot in &batch.snapshots {
+                                let clients = history.observe_ap(snapshot, now)?;
+                                eligible.push(ApSnapshot {
+                                    available: true,
+                                    ap_mac: snapshot.ap_mac.clone(),
+                                    ap_name: snapshot.ap_name.clone(),
+                                    clients,
+                                });
+                            }
+                            for ap_mac in &batch.unavailable_aps {
+                                history.mark_unavailable(ap_mac, now)?;
+                            }
+                            Some(eligible)
+                        } else {
+                            None
+                        };
+                        let available_ap_count = batch.snapshots.len();
+                        let unavailable_ap_count = batch.unavailable_aps.len();
+                        let client_count = batch.snapshots.iter()
+                            .map(|snapshot| snapshot.clients.len())
+                            .sum::<usize>();
                         let new_snapshots = batch
                             .snapshots
                             .iter()
@@ -86,27 +133,57 @@ where
                             .cloned()
                             .collect::<Vec<_>>();
                         if !new_snapshots.is_empty() {
-                            match publisher.publish_discovery(&new_snapshots).await {
-                                Ok(()) => {
-                                    discovered_aps.extend(
-                                        new_snapshots.iter().map(|snapshot| snapshot.ap_mac.clone()),
-                                    );
-                                }
-                                Err(error) => warn!(%error, "could not publish Home Assistant discovery"),
+                            let discovery_result = publisher.publish_discovery(&new_snapshots).await;
+                            if discovery_result.is_ok() {
+                                discovered_aps.extend(
+                                    new_snapshots.iter().map(|snapshot| snapshot.ap_mac.clone()),
+                                );
+                                info!(ap_count = new_snapshots.len(), "queued Home Assistant discovery");
                             }
+                            log_mqtt_failure(
+                                discovery_result.is_err(),
+                                false,
+                                "publish_home_assistant_discovery",
+                            );
                         }
-                        if let Err(error) = publisher.publish_snapshots(&batch.snapshots).await {
-                            warn!(%error, "could not publish AP client snapshots");
+                        log_mqtt_failure(
+                            publisher.publish_snapshots(&batch.snapshots).await.is_err(),
+                            false,
+                            "publish_ap_client_snapshots",
+                        );
+                        if let Some(eligible) = &eligible_snapshots {
+                            log_mqtt_failure(
+                                publisher.publish_eligible_snapshots(eligible).await.is_err(),
+                                false,
+                                "publish_ap_eligible_client_snapshots",
+                            );
                         }
-                        if let Err(error) = publisher.publish_unavailable(&batch.unavailable_aps).await {
-                            warn!(%error, "could not publish unavailable AP status");
-                        }
+                        log_mqtt_failure(
+                            publisher.publish_unavailable(&batch.unavailable_aps).await.is_err(),
+                            false,
+                            "publish_unavailable_ap_status",
+                        );
+                        info!(
+                            cycle_duration_ms = poll_started.elapsed().as_millis() as u64,
+                            available_ap_count,
+                            unavailable_ap_count,
+                            client_count,
+                            "UniFi poll cycle completed"
+                        );
                     }
                     Err(error) => {
-                        warn!(%error, "UniFi poll failed; preserving the last retained snapshots");
-                        if let Err(error) = publisher.publish_unavailable(&config.ap_macs).await {
-                            warn!(%error, "could not publish AP unavailable status");
+                        if let Some(history) = history.as_mut() {
+                            let now = unix_now()?;
+                            for ap_mac in &config.ap_macs {
+                                history.mark_unavailable(ap_mac, now)?;
+                            }
                         }
+                        warn!(failure = %error, poll_duration_ms = poll_started.elapsed().as_millis() as u64, "UniFi poll failed; preserving the last retained snapshots");
+                        log_mqtt_failure(
+                            publisher.publish_unavailable(&config.ap_macs).await.is_err(),
+                            false,
+                            "publish_ap_unavailable_status",
+                        );
                     }
                 }
             }
@@ -114,16 +191,25 @@ where
     }
 
     info!("shutting down UniFi AP client poller");
-    if let Err(error) = publisher.publish_unavailable(&config.ap_macs).await {
-        error!(%error, "could not publish AP shutdown status");
-    }
-    if let Err(error) = publisher.publish_offline().await {
-        error!(%error, "could not publish service shutdown status");
-    }
+    log_mqtt_failure(
+        publisher
+            .publish_unavailable(&config.ap_macs)
+            .await
+            .is_err(),
+        true,
+        "publish_ap_shutdown_status",
+    );
+    log_mqtt_failure(
+        publisher.publish_offline().await.is_err(),
+        true,
+        "publish_service_shutdown_status",
+    );
     tokio::time::sleep(Duration::from_millis(250)).await;
-    if let Err(error) = publisher.disconnect().await {
-        error!(%error, "could not disconnect MQTT client cleanly");
-    }
+    log_mqtt_failure(
+        publisher.disconnect().await.is_err(),
+        true,
+        "disconnect_mqtt_client",
+    );
     tokio::time::sleep(Duration::from_millis(100)).await;
     mqtt_task.abort();
     let _ = tokio::time::timeout(Duration::from_secs(2), mqtt_task).await;
@@ -177,6 +263,11 @@ mod tests {
             mqtt_port: 1,
             mqtt_username: None,
             mqtt_password: None,
+            mqtt_base_topic: "unifi/apclients".to_owned(),
+            homeassistant_discovery_enabled: true,
+            homeassistant_discovery_prefix: "homeassistant".to_owned(),
+            homeassistant_status_topic: "homeassistant/status".to_owned(),
+            client_history_db: None,
         }
     }
 

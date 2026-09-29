@@ -31,6 +31,19 @@ pub enum UniFiError {
     Mapping(#[from] MapperError),
 }
 
+impl UniFiError {
+    /// Return an operational summary that cannot expose controller URLs or API payloads.
+    pub fn safe_summary(&self) -> String {
+        match self {
+            Self::Client(_) => "UniFi HTTP client or request failure".to_owned(),
+            Self::HttpStatus(status) => format!("UniFi HTTP status {status}"),
+            Self::Api(_) => "UniFi API rejected the request".to_owned(),
+            Self::Json(_) => "invalid UniFi API JSON response".to_owned(),
+            Self::Mapping(_) => "invalid UniFi API data".to_owned(),
+        }
+    }
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct SnapshotBatch {
     pub snapshots: Vec<ApSnapshot>,
@@ -151,5 +164,46 @@ fn check_api_response(value: &Value) -> Result<(), UniFiError> {
                 .unwrap_or("unsuccessful response")
                 .to_owned(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use reqwest::StatusCode;
+    use serde_json::Value;
+
+    use crate::mapper::MapperError;
+
+    use super::UniFiError;
+
+    #[test]
+    fn safe_summaries_cover_api_failure_kinds_without_exposing_payloads() {
+        let errors = [
+            (
+                UniFiError::HttpStatus(StatusCode::BAD_GATEWAY),
+                "UniFi HTTP status 502 Bad Gateway",
+            ),
+            (
+                UniFiError::Api("controller.example.test: secret response".to_owned()),
+                "UniFi API rejected the request",
+            ),
+            (
+                UniFiError::Json(
+                    serde_json::from_str::<Value>("{").expect_err("the fixture is malformed JSON"),
+                ),
+                "invalid UniFi API JSON response",
+            ),
+            (
+                UniFiError::Mapping(MapperError::UnsuccessfulResponse),
+                "invalid UniFi API data",
+            ),
+        ];
+
+        for (error, expected) in errors {
+            let summary = error.safe_summary();
+            assert_eq!(summary, expected);
+            assert!(!summary.contains("controller.example.test"));
+            assert!(!summary.contains("secret response"));
+        }
     }
 }

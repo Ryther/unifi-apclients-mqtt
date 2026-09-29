@@ -10,6 +10,13 @@ docker compose logs --tail=100 unifi-apclients-mqtt
 docker compose config
 ```
 
+Logs are JSON on stdout. A successful poll cycle reports duration plus
+available AP, unavailable AP and client counts; connection and replay events describe MQTT
+recovery. Temporarily set `RUST_LOG=debug` for more detail. The example Compose
+configuration limits local Docker log storage by rotating at 10 MiB and keeping
+three files. Review output before sharing it; never include client details,
+hostnames, IP addresses, AP/client MACs or credentials.
+
 For the secret-file example, add `-f compose.secrets.example.yaml` to both
 commands.
 
@@ -23,6 +30,12 @@ commands.
   same rule applies to the MQTT password pair.
 - If using MQTT authentication, provide both `MQTT_USERNAME` and a non-empty
   `MQTT_PASSWORD` or `MQTT_PASSWORD_FILE`.
+- The published image sets `CLIENT_HISTORY_DB=/data/client-history.db` by
+  default. Confirm `/data` is mounted on durable storage and writable by
+  UID/GID `10001`. Remove an empty `CLIENT_HISTORY_DB=` entry from `.env`,
+  because it overrides the image default. A corrupt or unwritable history
+  database prevents startup or stops the service, so no client can become
+  eligible from incomplete history.
 
 ## UniFi shows authentication or connection errors
 
@@ -40,14 +53,19 @@ commands.
 
 - Check broker reachability from the container, `MQTT_PORT`, and optional
   credentials.
-- Confirm the broker permits the service to publish under
-  `unifi/apclients/` and `homeassistant/sensor/`.
+- Confirm the broker permits the service to publish under the configured
+  `MQTT_BASE_TOPIC` and `HOMEASSISTANT_DISCOVERY_PREFIX` paths, and to subscribe
+  to `HOMEASSISTANT_STATUS_TOPIC`.
 - Home Assistant needs its MQTT integration connected to the same broker and
   MQTT Discovery enabled.
 - Look for the retained discovery config under
-  `homeassistant/sensor/unifi_apclients/<id>/config`, then inspect the matching
-  AP state and availability topics from the
+  `<HOMEASSISTANT_DISCOVERY_PREFIX>/sensor/unifi_apclients/<id>/config`, then
+  inspect the matching AP state and availability topics from the
   [configuration reference](configuration.md#home-assistant-mqtt-entities).
+- The Eligible clients sensor appears when `CLIENT_HISTORY_DB` is configured;
+  the published image configures it by default.
+  Check its separate retained discovery and state topics in the configuration
+  reference. Its count can stay at zero until a client meets the presence rule.
 
 ## A snapshot appears stale
 
