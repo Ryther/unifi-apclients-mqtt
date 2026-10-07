@@ -76,6 +76,16 @@ the last retained state. A successful response with no associated clients
 publishes an empty client list. Check availability before interpreting a
 retained snapshot as current.
 
+If both AP and client updates stop while the container still runs, compare the
+last `UniFi poll cycle completed` event with the MQTT connection and replay
+events. `MQTT operation timed out` means the bounded outgoing request queue did
+not accept the operation within five seconds. Check broker reachability and
+whether `queued cached MQTT state replay` appears after reconnect. The MQTT
+event loop runs independently of replay; a stopped event loop ends the process,
+allowing a configured Docker restart policy to start it again. Docker Compose
+does not restart a running container merely because a healthcheck marks it
+unhealthy.
+
 Before sharing logs or broker diagnostics, remove passwords, usernames,
 controller hostnames, AP MAC addresses, and client details.
 

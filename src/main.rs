@@ -8,7 +8,7 @@ use tracing_subscriber::EnvFilter;
 use unifi_apclients_mqtt::{
     config::Config,
     mapper::ApSnapshot,
-    mqtt::{MqttPublisher, log_mqtt_failure, run_event_loop},
+    mqtt::{MqttPublisher, enqueue_with_timeout, run_event_loop},
     presence_history::PresenceHistory,
     unifi::{SnapshotBatch, UniFiClient},
 };
@@ -67,7 +67,7 @@ where
     ShutdownFuture: Future<Output = Result<(), std::io::Error>>,
 {
     let event_publisher = publisher.clone();
-    let mqtt_task = tokio::spawn(run_event_loop(event_loop, event_publisher));
+    let mut mqtt_task = tokio::spawn(run_event_loop(event_loop, event_publisher));
 
     let mut ticker = tokio::time::interval(config.poll_interval);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -97,6 +97,10 @@ where
             result = &mut shutdown => {
                 result?;
                 break;
+            }
+            result = &mut mqtt_task => {
+                warn!(panicked = result.is_err(), "MQTT event loop stopped");
+                return Err(std::io::Error::other("MQTT event loop stopped").into());
             }
             _ = ticker.tick() => {
                 let poll_started = Instant::now();
@@ -133,36 +137,35 @@ where
                             .cloned()
                             .collect::<Vec<_>>();
                         if !new_snapshots.is_empty() {
-                            let discovery_result = publisher.publish_discovery(&new_snapshots).await;
-                            if discovery_result.is_ok() {
+                            let discovery_queued = enqueue_with_timeout(
+                                publisher.publish_discovery(&new_snapshots),
+                                false,
+                                "publish_home_assistant_discovery",
+                            ).await;
+                            if discovery_queued {
                                 discovered_aps.extend(
                                     new_snapshots.iter().map(|snapshot| snapshot.ap_mac.clone()),
                                 );
                                 info!(ap_count = new_snapshots.len(), "queued Home Assistant discovery");
                             }
-                            log_mqtt_failure(
-                                discovery_result.is_err(),
-                                false,
-                                "publish_home_assistant_discovery",
-                            );
                         }
-                        log_mqtt_failure(
-                            publisher.publish_snapshots(&batch.snapshots).await.is_err(),
+                        enqueue_with_timeout(
+                            publisher.publish_snapshots(&batch.snapshots),
                             false,
                             "publish_ap_client_snapshots",
-                        );
+                        ).await;
                         if let Some(eligible) = &eligible_snapshots {
-                            log_mqtt_failure(
-                                publisher.publish_eligible_snapshots(eligible).await.is_err(),
+                            enqueue_with_timeout(
+                                publisher.publish_eligible_snapshots(eligible),
                                 false,
                                 "publish_ap_eligible_client_snapshots",
-                            );
+                            ).await;
                         }
-                        log_mqtt_failure(
-                            publisher.publish_unavailable(&batch.unavailable_aps).await.is_err(),
+                        enqueue_with_timeout(
+                            publisher.publish_unavailable(&batch.unavailable_aps),
                             false,
                             "publish_unavailable_ap_status",
-                        );
+                        ).await;
                         info!(
                             cycle_duration_ms = poll_started.elapsed().as_millis() as u64,
                             available_ap_count,
@@ -179,11 +182,11 @@ where
                             }
                         }
                         warn!(failure = %error, poll_duration_ms = poll_started.elapsed().as_millis() as u64, "UniFi poll failed; preserving the last retained snapshots");
-                        log_mqtt_failure(
-                            publisher.publish_unavailable(&config.ap_macs).await.is_err(),
+                        enqueue_with_timeout(
+                            publisher.publish_unavailable(&config.ap_macs),
                             false,
                             "publish_ap_unavailable_status",
-                        );
+                        ).await;
                     }
                 }
             }
@@ -191,25 +194,20 @@ where
     }
 
     info!("shutting down UniFi AP client poller");
-    log_mqtt_failure(
-        publisher
-            .publish_unavailable(&config.ap_macs)
-            .await
-            .is_err(),
+    enqueue_with_timeout(
+        publisher.publish_unavailable(&config.ap_macs),
         true,
         "publish_ap_shutdown_status",
-    );
-    log_mqtt_failure(
-        publisher.publish_offline().await.is_err(),
+    )
+    .await;
+    enqueue_with_timeout(
+        publisher.publish_offline(),
         true,
         "publish_service_shutdown_status",
-    );
+    )
+    .await;
     tokio::time::sleep(Duration::from_millis(250)).await;
-    log_mqtt_failure(
-        publisher.disconnect().await.is_err(),
-        true,
-        "disconnect_mqtt_client",
-    );
+    enqueue_with_timeout(publisher.disconnect(), true, "disconnect_mqtt_client").await;
     tokio::time::sleep(Duration::from_millis(100)).await;
     mqtt_task.abort();
     let _ = tokio::time::timeout(Duration::from_secs(2), mqtt_task).await;
