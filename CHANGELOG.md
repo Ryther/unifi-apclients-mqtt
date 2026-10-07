@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v1.0.0...unifi-apclients-mqtt-v1.0.1) (2026-10-07)
+
+
+### Bug Fixes
+
+* **mqtt:** keep polling through broker backpressure ([#43](https://github.com/Ryther/unifi-apclients-mqtt/issues/43)) ([48dadf3](https://github.com/Ryther/unifi-apclients-mqtt/commit/48dadf32a5a95cdff8b65e347b56668d3abd0346))
+
 ## [1.0.0](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v0.9.0...unifi-apclients-mqtt-v1.0.0) (2026-09-29)
 
 
