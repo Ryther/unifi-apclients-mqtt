@@ -25,9 +25,13 @@ All UniFi operations are read-only apart from the login request.
    availability, and the AP client sensor. With history enabled it also
    publishes an Eligible clients sensor on the same AP device. It subscribes to Home
    Assistant's status topic and replays discovery and cached state after a
-   broker reconnect or Home Assistant's `online` birth message.
+   broker reconnect or Home Assistant's `online` birth message. Replay runs in
+   a separate task so the MQTT event loop can continue draining its bounded
+   outgoing request queue.
 6. `main.rs` drives polling and reports offline availability on API errors or
-   clean shutdown without replacing the last good snapshot.
+   clean shutdown without replacing the last good snapshot. MQTT enqueue waits
+   are bounded; if the MQTT event loop stops, the process exits so a container
+   restart policy can recover it.
 
 ## Runtime image
 
@@ -46,6 +50,13 @@ AP missing from `stat/device` is marked unavailable without affecting other
 APs. An HTTP, authentication, or API-level failure marks every configured AP
 unavailable. In either failure case, retained client state is preserved so an
 empty response is never fabricated from an API error.
+
+During a broker outage, the bounded MQTT request queue can fill. The poller
+continues to observe UniFi after an enqueue timeout and keeps the latest
+snapshots in memory for replay after reconnect. The timeout does not indicate
+that a queued message was delivered to the broker. A normal Docker Compose
+`restart: unless-stopped` policy restarts the process after it exits; an
+`unhealthy` status alone does not restart a running container.
 
 ## MQTT contracts
 

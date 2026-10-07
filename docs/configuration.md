@@ -83,6 +83,9 @@ Warnings identify failed UniFi polls and MQTT operations. UniFi failure logs use
 a safe summary rather than the URL or API response. Logs intentionally omit
 client details, names, AP identifiers and payloads; aggregate counts are not a
 per-client activity history.
+An `MQTT operation timed out` warning reports a five-second wait for space in
+the MQTT request queue. Polling continues, and cached state is replayed after
+the broker reconnects.
 
 Use `docker compose logs -f unifi-apclients-mqtt` to follow the service. Review
 logs before sharing them; broker/runtime errors can still contain environmental

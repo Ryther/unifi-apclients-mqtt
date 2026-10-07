@@ -1,12 +1,16 @@
 use std::{
     collections::HashMap,
+    future::Future,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use rumqttc::{AsyncClient, Event, EventLoop, LastWill, MqttOptions, QoS};
 use serde_json::{Value, json};
 
 use crate::{config::Config, mapper::ApSnapshot};
+
+const MQTT_ENQUEUE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 pub struct MqttPublisher {
@@ -30,6 +34,32 @@ struct CachedAp {
     snapshot: Option<ApSnapshot>,
     eligible_snapshot: Option<ApSnapshot>,
     available: bool,
+}
+
+struct ReplayTask(Option<tokio::task::JoinHandle<()>>);
+
+impl ReplayTask {
+    fn replace(&mut self, task: tokio::task::JoinHandle<()>) {
+        if let Some(previous) = self.0.replace(task) {
+            previous.abort();
+        }
+    }
+
+    fn abort(&mut self) {
+        if let Some(task) = self.0.take() {
+            task.abort();
+        }
+    }
+
+    fn is_running(&self) -> bool {
+        self.0.as_ref().is_some_and(|task| !task.is_finished())
+    }
+}
+
+impl Drop for ReplayTask {
+    fn drop(&mut self) {
+        self.abort();
+    }
 }
 
 impl MqttPublisher {
@@ -327,6 +357,7 @@ impl MqttPublisher {
 }
 
 pub async fn run_event_loop(mut event_loop: EventLoop, publisher: MqttPublisher) {
+    let mut replay_task = ReplayTask(None);
     loop {
         match event_loop.poll().await {
             Ok(Event::Incoming(rumqttc::Packet::ConnAck(ack))) => {
@@ -334,27 +365,33 @@ pub async fn run_event_loop(mut event_loop: EventLoop, publisher: MqttPublisher)
                     session_present = ack.session_present,
                     "connected to MQTT broker"
                 );
-                if publisher.config.discovery_enabled {
-                    let subscribe_failed = publisher
-                        .client
-                        .subscribe(
-                            publisher.config.homeassistant_status_topic.as_str(),
-                            QoS::AtLeastOnce,
-                        )
-                        .await
-                        .is_err();
-                    log_mqtt_failure(subscribe_failed, false, "subscribe_home_assistant_status");
-                }
-                log_mqtt_failure(
-                    publisher.publish_online().await.is_err(),
-                    false,
-                    "publish_service_online_status",
-                );
-                log_mqtt_failure(
-                    publisher.replay_cached_state().await.is_err(),
-                    false,
-                    "replay_cached_mqtt_state",
-                );
+                let replay_publisher = publisher.clone();
+                replay_task.replace(tokio::spawn(async move {
+                    if replay_publisher.config.discovery_enabled {
+                        log_mqtt_failure(
+                            replay_publisher
+                                .client
+                                .subscribe(
+                                    replay_publisher.config.homeassistant_status_topic.as_str(),
+                                    QoS::AtLeastOnce,
+                                )
+                                .await
+                                .is_err(),
+                            false,
+                            "subscribe_home_assistant_status",
+                        );
+                    }
+                    log_mqtt_failure(
+                        replay_publisher.publish_online().await.is_err(),
+                        false,
+                        "publish_service_online_status",
+                    );
+                    log_mqtt_failure(
+                        replay_publisher.replay_cached_state().await.is_err(),
+                        false,
+                        "replay_cached_mqtt_state",
+                    );
+                }));
             }
             Ok(Event::Incoming(rumqttc::Packet::Publish(message)))
                 if publisher.config.discovery_enabled
@@ -362,17 +399,51 @@ pub async fn run_event_loop(mut event_loop: EventLoop, publisher: MqttPublisher)
                     && message.payload.as_ref() == b"online" =>
             {
                 tracing::debug!("Home Assistant reported online; replaying discovery and state");
-                log_mqtt_failure(
-                    publisher.replay_cached_state().await.is_err(),
-                    false,
-                    "replay_state_after_home_assistant_startup",
-                );
+                if replay_task.is_running() {
+                    continue;
+                }
+                let replay_publisher = publisher.clone();
+                replay_task.replace(tokio::spawn(async move {
+                    log_mqtt_failure(
+                        replay_publisher.replay_cached_state().await.is_err(),
+                        false,
+                        "replay_state_after_home_assistant_startup",
+                    );
+                }));
             }
             Ok(_) => {}
             Err(_) => {
+                replay_task.abort();
                 log_mqtt_failure(true, false, "mqtt_connection");
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
+        }
+    }
+}
+
+/// Bound waits for rumqttc's request queue so its event loop can keep draining it.
+/// A timed-out send is cancelled; the cached snapshots are replayed on reconnect.
+pub async fn enqueue_with_timeout<F, E>(
+    operation_future: F,
+    is_shutdown: bool,
+    operation: &'static str,
+) -> bool
+where
+    F: Future<Output = Result<(), E>>,
+{
+    match tokio::time::timeout(MQTT_ENQUEUE_TIMEOUT, operation_future).await {
+        Ok(Ok(())) => true,
+        Ok(Err(_)) => {
+            log_mqtt_failure(true, is_shutdown, operation);
+            false
+        }
+        Err(_) => {
+            if is_shutdown {
+                tracing::error!(operation, "MQTT operation timed out");
+            } else {
+                tracing::warn!(operation, "MQTT operation timed out");
+            }
+            false
         }
     }
 }
