@@ -95,7 +95,8 @@ mounted volume.
 
 ## SonarCloud badge says the quality gate is not computed
 
-This badge follows the main branch configured in SonarCloud. If the repository's
+First confirm the badge uses the project key from `sonar-project.properties`.
+The badge follows the main branch configured in SonarCloud. If the repository's
 GitHub default branch is `main`, make sure SonarCloud also marks `main` as the
 project's main branch. Analyses may pass on a secondary SonarCloud branch while
 the badge for its configured main branch remains uncomputed. See SonarCloud's

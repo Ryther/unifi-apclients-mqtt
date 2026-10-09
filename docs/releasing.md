@@ -17,8 +17,9 @@ Set the fine-grained repository secret `RELEASE_PLEASE_TOKEN` with repository
 Contents, Issues, and Pull requests read/write permissions. The built-in
 `GITHUB_TOKEN` does not trigger follow-up CI for bot-created pull requests.
 Set `SONAR_TOKEN` to a project analysis token for the SonarQube Cloud project
-`unifi-apclients-mqtt`. Sonar runs only on `main` pushes and
-trusted same-repository pull requests; its Clippy and coverage report job has
+`Ryther_unifi-apclients-mqtt` in the `ryther` organization. Sonar runs only on
+`main` pushes and trusted same-repository pull requests; its Clippy and
+coverage report job has
 no Sonar secret. The required `Sonar Cloud` status fails when coverage or the
 expected analysis report is missing or fails. Fork and Dependabot pull
 requests are analyzed on a disposable SonarQube Community Build with a
