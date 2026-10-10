@@ -15,7 +15,7 @@ name = "unifi-apclients-mqtt"
 path = "src/main.rs"
 
 [dependencies]
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 reqwest = { version = "0.12", default-features = false, features = ["cookies", "json", "rustls-tls"] }
 rumqttc = { version = "0.25", default-features = false }
 serde = { version = "1", features = ["derive"] }
