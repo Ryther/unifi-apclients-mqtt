@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v1.0.1...unifi-apclients-mqtt-v1.0.2) (2026-10-24)
+
+
+### Documentation
+
+* document maintenance release requests ([dee2ac4](https://github.com/Ryther/unifi-apclients-mqtt/commit/dee2ac4320a822570d8b40b82773c13f1b3de96a))
+
 ## [1.0.1](https://github.com/Ryther/unifi-apclients-mqtt/compare/unifi-apclients-mqtt-v1.0.0...unifi-apclients-mqtt-v1.0.1) (2026-10-07)
 
 
