@@ -79,7 +79,7 @@ The database must be stored on persistent writable storage. The original
 sensor and topics remain unchanged.
 
 Payload examples and exact topics are documented in the
-[repository README](https://github.com/Ryther/unifi-apclients-mqtt#readme).
+[configuration reference](configuration.md#home-assistant-mqtt-entities).
 Do not change topics, unique IDs, retained behavior, or availability semantics
 without considering existing Home Assistant entities and retained broker data.
 

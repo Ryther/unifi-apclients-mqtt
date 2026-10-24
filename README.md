@@ -33,6 +33,16 @@ AI assistants can use the self-contained
 [UniFi AP Clients MQTT guide skill](.agents/skills/unifi-apclients-mqtt-guide/SKILL.md)
 for installation, configuration, and troubleshooting instructions.
 
+## Compatibility and connection limits
+
+The published image supports Linux x86-64. The client uses the cookie-based
+UniFi API: `/api/login` and `/api/s/default/stat/{device,sta}`. It always reads
+the `default` site; it does not implement UniFi OS login or API-key authentication.
+Check that your controller exposes these endpoints before deploying.
+MQTT uses plain TCP, without TLS. Keep the broker connection on a trusted,
+private network; credentials and snapshots are not encrypted on that connection.
+The MQTT client ID is fixed, so run one instance per broker.
+
 ## Configuration
 
 Copy `.env.example` to `.env` and replace every example value with your own.
@@ -43,8 +53,8 @@ For Docker Compose deployments, password settings can be read from Docker
 secret files with `UNIFI_PASSWORD_FILE` and `MQTT_PASSWORD_FILE`; see the
 [installation guide](https://ryther.github.io/unifi-apclients-mqtt/installation/#use-docker-compose-secrets).
 
-`UNIFI_TLS_INSECURE` defaults to `false`. Set it to `true` for the current
-self-signed controller certificate. Requests still use HTTPS encryption, but
+`UNIFI_TLS_INSECURE` defaults to `false`. Set it to `true` only if you
+explicitly accept an unverified controller certificate. Requests still use HTTPS encryption, but
 the client will not authenticate the controller certificate. Keep this option
 on the trusted local network and do not expose the service to untrusted hosts.
 
@@ -114,8 +124,8 @@ service to a Docker network shared with your controller when needed, and set
 `UNIFI_PASSWORD` and `MQTT_PASSWORD` empty in `.env` when using their
 corresponding secret files. The files must be readable by the container's
 dedicated UID/GID `10001`; Compose's file-backed secrets do not remap file
-ownership or permissions. Keep real credentials out of `.env` and keep the
-`secrets/` directory out of Git.
+ownership or permissions. When using secret files, keep real passwords out of `.env`. Keep both `.env`
+and `secrets/` out of Git.
 See the [full installation guide](https://ryther.github.io/unifi-apclients-mqtt/installation/)
 for file permissions and local development setup.
 
