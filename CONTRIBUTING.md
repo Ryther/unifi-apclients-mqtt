@@ -53,6 +53,24 @@ When changing the Dockerfile, build the image locally and confirm its
 MQTT publication, mounted secret files, and SQLite persistence only against
 disposable local fixtures; do not use household services for this check.
 
+## Documentation checks
+
+Install the pinned documentation tools in a disposable environment, then build:
+
+```sh
+python -m venv _tmp/docs-venv
+_tmp/docs-venv/bin/python -m pip install -r docs/requirements.txt
+_tmp/docs-venv/bin/python -m mkdocs build --strict
+```
+
+Use `mkdocs serve` through that same interpreter to inspect the site locally.
+Review installation, settings and troubleshooting as connected user journeys,
+including narrow-screen navigation and internal anchors. Verify executable
+examples with synthetic controller/broker fixtures. Keep screenshots, captures
+and test notes under ignored `_test/`; distinguish these checks from a real
+controller or Home Assistant UI test. Update the standalone user-guide skill
+when a procedure changes.
+
 ## Pull requests
 
 Use a Conventional Commit title and commits (`feat:`, `fix:`, `docs:`, `ci:`,
