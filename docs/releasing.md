@@ -6,6 +6,13 @@ Release Please proposes version and changelog updates from Conventional Commits
 merged to `main`. Review the release pull request before merging it. Stable
 release tags use the `unifi-apclients-mqtt-vMAJOR.MINOR.PATCH` form.
 
+For an explicitly authorized maintenance release, add a `Release-As: X.Y.Z`
+footer to a Conventional Commit containing the reviewed change. Release Please
+then proposes that version; review its generated diff and checks before merging.
+Do not edit version files or create a release tag by hand. Empty commits can be
+dropped during a rebase merge, so do not rely on an empty commit to carry this
+request through a pull request.
+
 ## GitHub configuration
 
 Use `main` as the default branch and enable Actions. In Pages settings, select
