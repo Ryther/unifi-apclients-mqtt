@@ -99,6 +99,14 @@ contracts change. Keep plans, local diagnostics, and broker captures under the
 ignored `_test/` or `_tmp/` directories. Check `git status --short
 --untracked-files=all`, `git diff --check`, and the staged diff before committing.
 
+For documentation changes, verify configuration keys and protocol limits against
+code, build the site with `mkdocs build --strict`, check internal anchors and
+inspect desktop and narrow layouts after navigation changes. Installation and
+recovery instructions need prerequisites, complete commands, observable success
+and data-retention consequences. Use disposable fixtures for executable examples;
+record what was actually tested and any external verification limits privately.
+Never recommend sharing expanded Compose configuration containing secrets.
+
 Keep the user guide skill self-contained and aligned with the docs. Store its
 source at `.agents/skills/unifi-apclients-mqtt-guide/SKILL.md`; expose the same
 directory through `.claude/skills/unifi-apclients-mqtt-guide` and link it from

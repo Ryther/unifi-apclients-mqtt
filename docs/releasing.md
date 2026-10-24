@@ -27,14 +27,15 @@ job-scoped token instead of the SonarCloud secret. Allow GitHub Actions to
 create pull requests in repository settings if the organization requires that
 setting.
 
-The `main` branch rules require these checks: `Conventional Commits`, `Workflow
-lint`, `Secrets`, `Rust (1.90.0)`, `Rust (1.98.1)`, `Docker image`, `build`
+Configure and verify the live `main` branch rules to require these checks:
+`Conventional Commits`, `Workflow lint`, `Secrets`, `Rust (1.90.0)`, `Rust (1.98.1)`, `Docker image`, `build`
 (documentation), `CodeQL (rust)`, `CodeQL (actions)`, `Sonar Clippy report`,
 and `Sonar Cloud`. Fork and Dependabot pull requests use the disposable
-Community scan because they do not receive the project token. Branch rules require
-pull requests and current-base checks, enforce linear history and conversation
-resolution, and disallow force pushes and branch deletion. Review security and
-release settings before the first image publication.
+Community scan because they do not receive the project token. Configure branch
+rules to require pull requests and current-base checks, enforce linear history and conversation
+resolution, and disallow force pushes and branch deletion. Recheck live
+security and release settings when workflow contracts change; this document
+does not certify the current GitHub settings.
 
 ## Exact-candidate publication
 
@@ -53,10 +54,15 @@ scan alone is not proof that the compiled binary has no vulnerable components.
 Keep the separate `Cargo.lock` scan and review bundled native dependencies.
 
 If validation or image publication fails, the release remains a draft. Use the
-workflow's manual `release_tag` input (for example,
-`unifi-apclients-mqtt-v0.2.0`) to validate and resume that draft after fixing
-the cause. Never move a published tag or publish an image from a different
-commit.
+workflow's manual `release_tag` input with that draft's exact tag to retry the
+same candidate after correcting a transient network, registry or credential
+problem. A code or lockfile fix in a later commit does not repair
+the old candidate: propose a new candidate through Release Please instead.
+Never move a published tag or publish an image from a different commit.
+
+The versioned image tag is the full release tag, for example
+`ghcr.io/ryther/unifi-apclients-mqtt:unifi-apclients-mqtt-v1.0.1`, not `:1.0.1`.
+The same publication also advances `latest`.
 
 GHCR package visibility is configured separately from repository visibility.
 If the server must pull a private package, provide a read-only package token to
