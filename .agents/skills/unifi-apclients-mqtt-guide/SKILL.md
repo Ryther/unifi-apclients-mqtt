@@ -12,7 +12,7 @@ count; attributes contain AP and client details. Persistent history adds an
 Eligible clients sensor per AP when `CLIENT_HISTORY_DB` is configured; the image
 configures it by default. These are aggregate AP
 snapshots, not per-client `device_tracker` entities. The service does not
-control UniFi devices, change Home Assistant configuration, or close a garage.
+control UniFi devices or change Home Assistant configuration.
 
 This guide is self-contained. The assistant may not have repository, server,
 Home Assistant, broker or shell access. Never claim a change was made or
@@ -27,6 +27,15 @@ read-only UniFi account with access to client and device statistics, and an
 MQTT broker reachable from the container. It runs as a non-root container user
 (UID/GID 10001); secret files must be readable by that identity.
 
+The image supports Linux x86-64. The controller must expose cookie login at
+`/api/login` and statistics at `/api/s/default/stat/device` and
+`/api/s/default/stat/sta`, relative to `UNIFI_URL`. Only the `default` site is
+supported; there is no UniFi OS login or API-key adapter. MQTT uses plain TCP,
+without TLS; port 8883 does not enable encryption. Use a trusted private
+network. Run one instance per broker because its client ID is fixed.
+
+Create a private working directory. Save the following as `compose.yaml` and
+create `.env` next to it. The secret files are described below.
 For Docker Compose, use the published image:
 
 ```yaml
@@ -61,11 +70,20 @@ volumes:
 ```
 
 `MQTT_PASSWORD_FILE` and its secret are optional if the broker has no
-authentication. Set either a direct password variable or its `_FILE` path, not
+authentication: remove that environment key, its service secret entry and its
+top-level secret definition together. Set either a direct password variable or its `_FILE` path, not
 both. For reproducible upgrades, use a published version tag instead of
-`latest`. Compose secrets are files on the host; protect them and make them
-readable by UID/GID 10001. Start with `docker compose up -d`, then inspect with
-`docker compose logs -f unifi-apclients-mqtt`.
+`latest`; the full versioned tag is, for example,
+`unifi-apclients-mqtt-v1.0.1`, not `1.0.1`. Compose secrets are files on the host; protect them and make them
+readable by UID/GID 10001. Create the `secrets/` directory and write each password to its own file using
+an editor or secret manager. With rootful Docker without user-namespace
+remapping, assign the files to UID/GID 10001 with mode 0400. With rootless or
+remapped Docker, use the mapped host identity; do not grant world-readable
+access. Do not paste passwords into chat or shell history.
+Validate with `docker compose config --quiet`, pull with `docker compose pull`,
+then start with `docker compose up -d`. Inspect with
+`docker compose logs --tail=100 -f unifi-apclients-mqtt`. Do not share plain
+`docker compose config` output, which can include expanded passwords.
 The image creates `/data` for UID/GID 10001 and sets
 `CLIENT_HISTORY_DB=/data/client-history.db`. Keep the named volume across
 container upgrades. The history database stores client MAC addresses and
@@ -78,7 +96,27 @@ client uses bundled WebPKI roots, not an OS certificate store.
 ## Configure
 
 Set these environment values in `.env`; keep it private and out of version
-control:
+control. For the secret-file Compose example above, start with this template;
+replace every placeholder before starting:
+
+```dotenv
+UNIFI_URL=https://controller.example.test:8443
+UNIFI_USERNAME=readonly-user
+UNIFI_AP_MACS=02:00:00:00:00:01
+UNIFI_TLS_INSECURE=false
+UNIFI_PASSWORD=
+MQTT_HOST=mqtt.example.test
+MQTT_PORT=1883
+MQTT_USERNAME=example-broker-user
+MQTT_PASSWORD=
+```
+
+For an unauthenticated broker leave `MQTT_USERNAME` empty and remove the MQTT
+secret declarations as described above. Container `localhost` is not the host
+or broker; configure reachable names and a shared Docker network when needed.
+Keep TLS validation enabled for a trusted controller certificate; disabling it
+explicitly accepts an unauthenticated certificate. Mounting a private CA file
+does not automatically add it to this image's trust roots.
 
 | Variable | Guidance |
 | --- | --- |
@@ -95,11 +133,12 @@ control:
 | `HOMEASSISTANT_DISCOVERY_ENABLED` | Defaults to `true`; disable only if discovery is managed elsewhere. |
 | `HOMEASSISTANT_DISCOVERY_PREFIX` | Defaults to `homeassistant`; must match HA's MQTT integration. |
 | `HOMEASSISTANT_STATUS_TOPIC` | Defaults to `homeassistant/status`; HA publishes its `online` birth message here. |
+| `RUST_LOG` | Defaults to `info`; use `debug` temporarily for diagnostics. |
 
-The default discovery sensor for each configured AP uses the state topic
-is `<MQTT_BASE_TOPIC>/<ap-mac-without-colons>/state`; availability is in the
+The default discovery sensor for each configured AP uses the state topic `<MQTT_BASE_TOPIC>/<ap-mac-without-colons>/state`; availability is in the
 matching `/availability` topic. Service availability is
-`<MQTT_BASE_TOPIC>/status`. Messages are retained. Each AP appears in Home
+`<MQTT_BASE_TOPIC>/status`. Home Assistant requires both to be online; an old
+per-AP value can remain retained after shutdown while the service is offline. Messages are retained. Each AP appears in Home
 Assistant as an AP-level device/sensor with the connected client list in its
 snapshot attributes. Do not expect individual client trackers or client
 entities.
@@ -161,3 +200,27 @@ For a configured AP whose MAC is `AA:BB:CC:DD:EE:FF` and default settings:
 
 Discovery and state are retained. Do not expose the broker publicly; its
 messages contain client identifiers and other household details.
+
+## Update or remove
+
+To update, record the current image tag and back up the history volume while
+the service is stopped. Choose a release tag, edit `image:`, then run
+`docker compose pull` and `docker compose up -d`. Recheck successful poll logs
+and the HA sensors. Keep the same Compose project and named volume; a new
+project name may create an empty volume. An older image does not roll back
+data; review release notes before attempting a downgrade.
+
+`docker compose down` removes the service without deleting the named history
+volume. Do not add `-v` unless history deletion is intended. Removing a
+container does not remove retained MQTT messages. For entity removal, stop the
+service first and use the broker's authenticated management tools to publish
+zero-byte retained payloads to the exact discovery topics for its APs:
+`<prefix>/sensor/unifi_apclients/<ap-id>/config` and, when enabled,
+`<prefix>/sensor/unifi_apclients/<ap-id>_eligible/config`. The AP ID is its
+lowercase MAC without colons. Never clear a shared discovery tree wholesale.
+
+To remove stored snapshots too, clear the exact `<base>/<ap-id>/state`,
+`<base>/<ap-id>/eligible/state`, `<base>/<ap-id>/availability` and
+`<base>/status` retained topics. Decide separately whether to retain or delete
+the history volume and local secrets. Disabling discovery alone leaves old
+retained configs in the broker.

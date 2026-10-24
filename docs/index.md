@@ -13,6 +13,7 @@ that match your privacy and access requirements.
 
 - **[Install the service](installation.md):** Run the published container or
   build locally, and choose environment variables or Docker Compose secrets.
+- **[Update or remove the service](installation.md#update-the-published-image):** Preserve history during upgrades and remove retained discovery deliberately.
 - **[Configure UniFi, MQTT, and Home Assistant](configuration.md):** Set the
   required values and understand discovery, state, and availability topics.
 - **[Fix a problem](troubleshooting.md):** Check controller access, secret-file
@@ -26,6 +27,6 @@ that match your privacy and access requirements.
   [contribution guide](https://github.com/Ryther/unifi-apclients-mqtt/blob/main/CONTRIBUTING.md).
 
 The [README](https://github.com/Ryther/unifi-apclients-mqtt#readme) provides a
-short project overview and a Compose example. These guides track `main`; use the
+short project overview and links to the deployment examples. These guides track `main`; use the
 [release notes](https://github.com/Ryther/unifi-apclients-mqtt/releases) to
 check what changed between versions.

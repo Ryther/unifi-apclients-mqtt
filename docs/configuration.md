@@ -6,29 +6,50 @@ Set these values in the container environment. Use either the direct password
 variable or its `_FILE` counterpart. The service reads files at startup and
 does not log their contents.
 
-| Variable | Required | Default | Purpose |
-| --- | --- | --- | --- |
-| `UNIFI_URL` | Yes | — | HTTPS URL of the UniFi Network application, including a non-default port if needed. |
-| `UNIFI_USERNAME` | Yes | — | Dedicated read-only UniFi account. |
-| `UNIFI_PASSWORD` or `UNIFI_PASSWORD_FILE` | Yes | — | Password value or path to the mounted password file. |
-| `UNIFI_AP_MACS` | Yes | — | Comma-separated MAC addresses for the access points to publish. |
-| `UNIFI_POLL_INTERVAL_SECS` | No | `5` | Poll interval in seconds; must be greater than zero. |
-| `CLIENT_HISTORY_DB` | No | `/data/client-history.db` in the published image; otherwise disabled if unset | Path to a writable persistent SQLite database for client eligibility. The image enables one additional Eligible clients sensor per AP. Mount `/data` persistently. |
-| `UNIFI_TLS_INSECURE` | No | `false` | Set `true` only when you explicitly accept an unverified controller certificate. HTTPS encryption remains enabled. The image uses bundled WebPKI roots, not an OS certificate store. |
-| `MQTT_HOST` | Yes | — | Broker hostname or IP reachable from the container. |
-| `MQTT_PORT` | Yes | — | Broker TCP port. |
-| `MQTT_USERNAME` | No | — | MQTT username when broker authentication is enabled. |
-| `MQTT_PASSWORD` or `MQTT_PASSWORD_FILE` | No | — | Password value or mounted-file path; a password requires `MQTT_USERNAME`. |
-| `MQTT_BASE_TOPIC` | No | `unifi/apclients` | Shared topic root for service status and per-AP state and availability. Do not include MQTT wildcards. |
-| `HOMEASSISTANT_DISCOVERY_ENABLED` | No | `true` | Publish Home Assistant MQTT Discovery configuration. Accepts `true` or `false`. |
-| `HOMEASSISTANT_DISCOVERY_PREFIX` | No | `homeassistant` | Home Assistant MQTT Discovery prefix; must match the MQTT integration setting. |
-| `HOMEASSISTANT_STATUS_TOPIC` | No | `homeassistant/status` | Topic where Home Assistant publishes its online birth message; discovery is replayed when `online` is received. |
+### UniFi connection
+
+- **`UNIFI_URL`** — Required. HTTPS URL of the UniFi Network application, including a non-default port if needed.
+- **`UNIFI_USERNAME`** — Required. Dedicated read-only UniFi account.
+- **`UNIFI_PASSWORD` or `UNIFI_PASSWORD_FILE`** — Required. Password value or path to the mounted password file.
+- **`UNIFI_AP_MACS`** — Required. Comma-separated MAC addresses for the access points to publish.
+- **`UNIFI_POLL_INTERVAL_SECS`** — Default: `5`. Poll interval in seconds; must be greater than zero.
+- **`UNIFI_TLS_INSECURE`** — Default: `false`. Set `true` only when you explicitly accept an unverified controller certificate. HTTPS encryption remains enabled. The image uses bundled WebPKI roots, not an OS certificate store.
+
+### MQTT and Home Assistant
+
+- **`MQTT_HOST`** — Required. Broker hostname or IP reachable from the container.
+- **`MQTT_PORT`** — Required. Broker TCP port.
+- **`MQTT_USERNAME`** — Optional. MQTT username when broker authentication is enabled.
+- **`MQTT_PASSWORD` or `MQTT_PASSWORD_FILE`** — Optional. Password value or mounted-file path; a password requires `MQTT_USERNAME`.
+- **`MQTT_BASE_TOPIC`** — Default: `unifi/apclients`. Shared topic root for service status and per-AP state and availability. Do not include MQTT wildcards.
+- **`HOMEASSISTANT_DISCOVERY_ENABLED`** — Default: `true`. Publish Home Assistant MQTT Discovery configuration. Accepts `true` or `false`.
+- **`HOMEASSISTANT_DISCOVERY_PREFIX`** — Default: `homeassistant`. Home Assistant MQTT Discovery prefix; must match the MQTT integration setting.
+- **`HOMEASSISTANT_STATUS_TOPIC`** — Default: `homeassistant/status`. Topic where Home Assistant publishes its online birth message; discovery is replayed when `online` is received.
+
+### History and logs
+
+- **`CLIENT_HISTORY_DB`** — Default: `/data/client-history.db` in the published image; otherwise disabled if unset. Path to a writable persistent SQLite database for client eligibility. The image enables one additional Eligible clients sensor per AP. Mount `/data` persistently.
+- **`RUST_LOG`** — Default: `info`. Structured-log filter; use `debug` temporarily for diagnosis.
 
 An empty direct password variable is treated as unset, which lets an `.env` file
 be shared by the environment and secret-file deployment examples. If both a
 non-empty direct value and a file path are set, startup fails rather than
 choosing one silently. A secret file can end with LF or CRLF; those trailing
 line endings are removed.
+
+## Connection compatibility
+
+`UNIFI_URL` is the base to which the service appends `/api/login`,
+`/api/s/default/stat/device` and `/api/s/default/stat/sta`. Authentication uses
+username/password and a session cookie. Only the `default` site is queried;
+there is no site selector, UniFi OS authentication adapter or API-key option.
+A controller reachable over HTTPS is insufficient if it uses different API
+paths or authentication. Do not assume that a console URL is compatible.
+
+MQTT uses unencrypted TCP; setting port `8883` does not enable TLS. Use a
+trusted private network or a separately secured transport. The MQTT client ID
+is fixed to `unifi-apclients-mqtt`: two copies on one broker can disconnect
+each other even with different topic roots.
 
 ## Home Assistant MQTT entities
 
@@ -56,6 +77,10 @@ times, so protect the volume and keep it out of version control.
 | Home Assistant discovery | `<HOMEASSISTANT_DISCOVERY_PREFIX>/sensor/unifi_apclients/<id>/config` |
 | Eligible clients discovery | `<HOMEASSISTANT_DISCOVERY_PREFIX>/sensor/unifi_apclients/<id>_eligible/config` |
 
+Home Assistant combines AP and service availability with `availability_mode: all`: either
+being offline makes the entity unavailable. After a container stop, an old
+per-AP availability value can remain retained; check the service status too.
+
 State and discovery messages are retained. Home Assistant's `online` birth
 message prompts the service to replay discovery and cached snapshots. Setting
 `HOMEASSISTANT_DISCOVERY_ENABLED=false` stops discovery publication but does
@@ -65,6 +90,27 @@ A successful empty API response publishes an empty client list. API errors
 mark availability offline and keep the last retained state, rather than
 replacing it with fabricated empty data. The client list and AP attributes are described in the
 [MQTT architecture](architecture.md#mqtt-contracts).
+
+### Snapshot payload
+
+For an example AP `02:00:00:00:00:01`, the state topic is
+`unifi/apclients/020000000001/state` with the default base topic:
+
+```json
+{
+  "available": true,
+  "ap_mac": "02:00:00:00:00:01",
+  "ap_name": "Example AP",
+  "clients": [
+    {"mac": "02:00:00:00:00:02", "name": "Example client", "hostname": null, "ip": "192.0.2.20"}
+  ]
+}
+```
+
+There is no numeric `count` field: discovery derives the sensor state from
+`clients | count`. Client `hostname` and `ip` can be `null`; `name` falls back
+to hostname, then MAC. The Eligible clients payload uses the same shape with
+a filtered client list. Availability topics carry `online` or `offline`.
 
 ## Logs
 

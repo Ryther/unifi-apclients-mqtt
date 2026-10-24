@@ -7,8 +7,11 @@ passwords or client payloads into an issue. For the default Compose file, run:
 
 ```sh
 docker compose logs --tail=100 unifi-apclients-mqtt
-docker compose config
+docker compose config --quiet
 ```
+
+`config --quiet` validates Compose without printing the expanded environment.
+Do not share plain `docker compose config` output: it can contain passwords.
 
 Logs are JSON on stdout. A successful poll cycle reports duration plus
 available AP, unavailable AP and client counts; connection and replay events describe MQTT
@@ -28,8 +31,8 @@ commands.
   container and is readable by UID/GID `10001`.
 - Set either `UNIFI_PASSWORD` or `UNIFI_PASSWORD_FILE`; do not set both. The
   same rule applies to the MQTT password pair.
-- If using MQTT authentication, provide both `MQTT_USERNAME` and a non-empty
-  `MQTT_PASSWORD` or `MQTT_PASSWORD_FILE`.
+- Match the broker authentication settings. A configured password requires
+  `MQTT_USERNAME`; supply a password when the broker requires one.
 - The published image sets `CLIENT_HISTORY_DB=/data/client-history.db` by
   default. Confirm `/data` is mounted on durable storage and writable by
   UID/GID `10001`. Remove an empty `CLIENT_HISTORY_DB=` entry from `.env`,
@@ -38,6 +41,11 @@ commands.
   eligible from incomplete history.
 
 ## UniFi shows authentication or connection errors
+
+- Check the [supported API contract](configuration.md#connection-compatibility).
+  A `404` on `/api/login` or a response from a console login page can indicate
+  an incompatible endpoint. Changing the password or disabling TLS validation
+  does not add UniFi OS or API-key support.
 
 - Confirm that the controller URL uses `https://`, the host and port are
   reachable from the container, and the account can read client and device
@@ -68,6 +76,13 @@ commands.
   the published image configures it by default.
   Check its separate retained discovery and state topics in the configuration
   reference. Its count can stay at zero until a client meets the presence rule.
+
+## MQTT repeatedly reconnects
+
+Run only one instance of this service per broker. The fixed MQTT client ID
+means a second instance can evict the first even when their topics differ.
+Also confirm the port accepts plain MQTT TCP: TLS-only broker listeners are
+unsupported directly.
 
 ## A snapshot appears stale
 
